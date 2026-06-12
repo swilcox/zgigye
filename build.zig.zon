@@ -1,0 +1,13 @@
+.{
+    .name = .zgigye,
+    .version = "0.0.1",
+    .dependencies = .{
+        .vaxis = .{
+            .url = "git+https://github.com/rockorager/libvaxis#a367b89da09bfe5e1b628501940de5b4f858f5f3",
+            .hash = "vaxis-0.6.0-BWNV_HHwCQB451KS7A8SMykALblPmGwHnzSfiJHjN3_9",
+        },
+    },
+    .minimum_zig_version = "0.16.0",
+    .paths = .{""},
+    .fingerprint = 0xf8fa161dc60a0430,
+}
