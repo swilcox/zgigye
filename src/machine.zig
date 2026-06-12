@@ -17,6 +17,7 @@ const Instruction = instruction.Instruction;
 const opcodes = @import("opcodes.zig");
 const ui_mod = @import("ui.zig");
 const Ui = ui_mod.Ui;
+const state = @import("state.zig");
 
 pub const Error = error{
     StackUnderflow,
@@ -30,7 +31,7 @@ pub const Error = error{
     OutOfMemory,
 };
 
-const max_locals = 15;
+pub const max_locals = 15;
 
 /// One routine activation. Locals live in the frame; pushed values live on
 /// the machine's shared evaluation stack above `stack_base`.
@@ -365,5 +366,18 @@ pub const Machine = struct {
 
     pub fn quit(self: *Machine) void {
         self.running = false;
+    }
+
+    /// Snapshot all mutable state (dynamic memory, stacks, PC, RNG) as a
+    /// byte blob the caller persists however it likes; see state.zig.
+    pub fn saveState(self: *const Machine, gpa: Allocator) ![]u8 {
+        return state.save(self, gpa);
+    }
+
+    /// Replace this machine's state with a snapshot taken from the same
+    /// story file. The blob is untrusted: a malformed one yields
+    /// `error.InvalidState` and leaves the machine unchanged.
+    pub fn loadState(self: *Machine, data: []const u8) !void {
+        return state.load(self, data);
     }
 };

@@ -27,7 +27,10 @@ pub const Ui = struct {
         print: *const fn (ptr: *anyopaque, text: []const u8) anyerror!void,
         /// Read one line of player input into `buf`; returns the line
         /// without its newline. Implementations should flush any pending
-        /// output first.
+        /// output first. A frontend that cannot block may return
+        /// `error.InputPending`: the machine rewinds to the read
+        /// instruction and unwinds out of `run`, so it can be resumed
+        /// (or snapshotted via `Machine.saveState`) once input arrives.
         readLine: *const fn (ptr: *anyopaque, buf: []u8) anyerror![]const u8,
         /// Update the status line (shown for v3 games before input).
         showStatus: *const fn (ptr: *anyopaque, status: StatusLine) anyerror!void,

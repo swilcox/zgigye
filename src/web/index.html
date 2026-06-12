@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>zgigye</title>
+<style>
+  :root { color-scheme: dark; }
+  body {
+    margin: 0; background: #1c1e26; color: #d5d8df;
+    font: 16px/1.45 "SF Mono", Menlo, Consolas, monospace;
+  }
+  header {
+    position: sticky; top: 0; display: flex; justify-content: space-between;
+    padding: 0.3em 1rem; background: #d5d8df; color: #1c1e26;
+    white-space: pre;
+  }
+  main { max-width: 42rem; margin: 0 auto; padding: 1rem 1rem 4rem; }
+  pre { white-space: pre-wrap; word-break: break-word; margin: 0; }
+  form { display: flex; gap: 0.5ch; margin-top: 0.2em; }
+  .prompt { color: #8be08b; }
+  input {
+    flex: 1; background: none; border: none; outline: none;
+    color: inherit; font: inherit; caret-color: #8be08b;
+  }
+  .system { color: #7e8294; font-style: italic; }
+</style>
+</head>
+<body>
+<header><span id="location">&nbsp;</span><span id="progress"></span></header>
+<main>
+  <pre id="output"></pre>
+  <form id="form"><span class="prompt">&gt;</span><input id="input"
+    autocomplete="off" autocapitalize="none" spellcheck="false" autofocus></form>
+</main>
+<script>
+  let state = null;
+  const output = document.getElementById("output");
+  const input = document.getElementById("input");
+
+  function append(text, cls) {
+    const span = document.createElement("span");
+    if (cls) span.className = cls;
+    span.textContent = text;
+    output.appendChild(span);
+    input.scrollIntoView();
+  }
+
+  async function call(url, body) {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: body ? JSON.stringify(body) : null,
+    });
+    if (!res.ok) {
+      append(`[server error: ${await res.text()}]\n`, "system");
+      return null;
+    }
+    return res.json();
+  }
+
+  function show(turn) {
+    if (!turn) return;
+    // The game prints its own input prompt (usually ">") last; the input
+    // row below plays that role here, so drop it from the transcript.
+    append(turn.output.replace(/>\s*$/, ""));
+    if (turn.status) {
+      document.getElementById("location").textContent = turn.status.location;
+      const p = turn.status.progress;
+      document.getElementById("progress").textContent = p.score
+        ? `Score: ${p.score.score}   Moves: ${p.score.turns}`
+        : `${p.time.hours}:${String(p.time.minutes).padStart(2, "0")}`;
+    }
+    state = turn.state;
+    if (!state) {
+      append("\n[The game has ended. Reload the page to start again.]\n", "system");
+      input.disabled = true;
+    }
+  }
+
+  document.getElementById("form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (!state || !input.value) return;
+    const command = input.value;
+    input.value = "";
+    append(`> ${command}\n`);
+    show(await call("/turn", { state, input: command }));
+  });
+
+  call("/new").then(show);
+</script>
+</body>
+</html>

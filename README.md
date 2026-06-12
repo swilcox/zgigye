@@ -7,9 +7,10 @@ A z-machine interpreter in Zig, targeting version 3 (`.z3`) story files.
 Requires Zig 0.16.
 
 ```sh
-zig build                              # builds zig-out/bin/zgigye
-zig build run -- stories/minizork.z3   # play a story (full-screen TUI)
-zig build test                         # unit + integration tests
+zig build                                # builds zig-out/bin/zgigye
+zig build run -- stories/minizork.z3     # play a story (full-screen TUI)
+zig build serve -- stories/minizork.z3   # play in a browser (demo web server)
+zig build test                           # unit + integration tests
 ```
 
 When attached to a terminal the interpreter runs a full-screen TUI (built
@@ -36,9 +37,12 @@ testable layers:
 | `src/machine.zig` | Call frames, evaluation stack, variables, the run loop |
 | `src/opcodes.zig` | The v3 instruction set, one switch (spec ch. 14-15) |
 | `src/ui.zig` | The frontend interface (`Ui` vtable) |
+| `src/state.zig` | Out-of-band machine-state snapshots (compact byte blobs) |
+| `src/session.zig` | Suspend-at-input/resume driver for non-blocking frontends |
 | `src/text_ui.zig` | Plain-text frontend over any `std.Io` reader/writer pair |
 | `src/tui_ui.zig` | Full-screen libvaxis frontend (exe only, not in the library) |
 | `src/main.zig` | CLI entry point; picks the frontend and wires it up |
+| `src/serve.zig` | Demo HTTP frontend, one request per turn (exe only) |
 
 ### Pluggable frontends
 
@@ -48,6 +52,25 @@ plus score/turns or time), so each frontend renders it natively. Two
 implementations exist: `TextUi` (plain text over generic `std.Io` streams,
 used for piped play and all tests) and `TuiUi` (full-screen libvaxis).
 The core library has no dependency on libvaxis; only the executable does.
+
+### Suspend/resume and the web frontend
+
+A frontend that cannot block on input (a web server answering one HTTP
+request per game turn) returns `error.InputPending` from `readLine`; the
+machine rewinds to the read instruction and unwinds out of `run`, at which
+point `Machine.saveState` captures all mutable state — dynamic memory
+(XOR-diffed against the story and run-length encoded, typically well under
+1 KB), call frames, evaluation stack, PC, and RNG — as a compact blob.
+`Machine.loadState` applies a blob to a fresh machine for the same story,
+validating every field of the untrusted input first.
+
+`src/session.zig` wraps this as a pure turn-at-a-time API: `start(story)`
+runs to the first prompt; `advance(story, blob, input)` applies one
+command and runs to the next. Each `Turn` carries the printed output,
+structured status-line data, and the next state blob (or null once the
+game ends). Where blobs are persisted is entirely the caller's business —
+`zig build serve` demonstrates the extreme: a stateless HTTP server that
+round-trips the blob through the browser as base64.
 
 ### Testing
 
@@ -72,7 +95,7 @@ test run; the libvaxis frontend is excluded.
 
 ## Not yet implemented
 
-- Save/restore (Quetzal) — the save/restore opcodes currently branch as
-  failed.
+- In-band save/restore (Quetzal) — the save/restore opcodes currently
+  branch as failed. (Out-of-band snapshots exist; see `src/state.zig`.)
 - Versions other than 3.
 - Sound, screen splitting, and output streams beyond the main window.

@@ -6,10 +6,12 @@
 - `zig test src/root.zig` — same library tests with per-test output (run from repo root; doesn't cover tui_ui/main, which need the build graph for the vaxis import)
 - `zig build coverage` — kcov line coverage; report at `zig-out/coverage/index.html`
 - `zig build run -- stories/minizork.z3` — play (TUI on a terminal; `--plain` or piped = plain text)
+- `zig build serve -- stories/minizork.z3` — demo web frontend on http://127.0.0.1:8080 (`--port N` to change); stateless, the state blob round-trips through the client
 
 ## Architecture rules
 
-- The core library (everything except `tui_ui.zig`/`main.zig`) must stay free of file/terminal access and of the vaxis dependency. All I/O goes through the `Ui` vtable in `src/ui.zig`; status-line data is passed structured, never preformatted.
+- The core library (everything except `tui_ui.zig`/`main.zig`/`serve.zig`) must stay free of file/terminal/network access and of the vaxis dependency. All I/O goes through the `Ui` vtable in `src/ui.zig`; status-line data is passed structured, never preformatted.
+- Suspend/resume: a non-blocking `Ui.readLine` returns `error.InputPending`; the sread handler rewinds the PC so the read re-executes on resume. `Machine.saveState`/`loadState` (format in `state.zig`) snapshot all mutable state; `loadState` treats blobs as untrusted and validates everything. `session.zig` is the pure turn-at-a-time wrapper.
 - One module per spec concern; see the table in README.md. Opcode handlers live in one switch in `opcodes.zig`; `Machine.step` pre-advances the PC, so handlers only touch it for control flow.
 - Version 3 only, on purpose. Don't add v4+ branches speculatively.
 
@@ -22,4 +24,4 @@
 ## Environment
 
 - Zig 0.16: new `std.Io` API (`main(init: std.process.Init)`, explicit `io`). `Reader.takeDelimiter` consumes the newline; `takeDelimiterExclusive` does not. `std.BoundedArray` and `std.time.microTimestamp` are gone.
-- Known gaps: Quetzal save/restore (opcodes branch false), sound, screen split, output streams.
+- Known gaps: in-band Quetzal save/restore (the opcodes branch false; out-of-band snapshots in `state.zig` cover the web case), sound, screen split, output streams.

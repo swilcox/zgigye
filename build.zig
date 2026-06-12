@@ -35,6 +35,26 @@ pub fn build(b: *std.Build) void {
     if (b.args) |args| run_cmd.addArgs(args);
     run_step.dependOn(&run_cmd.step);
 
+    // The demo web frontend: one HTTP request per game turn.
+    const serve_exe = b.addExecutable(.{
+        .name = "zgigye-serve",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/serve.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "zgigye", .module = mod },
+            },
+        }),
+    });
+    b.installArtifact(serve_exe);
+
+    const serve_step = b.step("serve", "Run the demo web server (pass a story file after --)");
+    const serve_cmd = b.addRunArtifact(serve_exe);
+    serve_cmd.step.dependOn(b.getInstallStep());
+    if (b.args) |args| serve_cmd.addArgs(args);
+    serve_step.dependOn(&serve_cmd.step);
+
     const mod_tests = b.addTest(.{ .root_module = mod });
     const run_mod_tests = b.addRunArtifact(mod_tests);
     const exe_tests = b.addTest(.{ .root_module = exe.root_module });

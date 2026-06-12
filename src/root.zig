@@ -10,6 +10,7 @@ pub const Header = @import("header.zig").Header;
 pub const Memory = @import("memory.zig").Memory;
 pub const Instruction = @import("instruction.zig").Instruction;
 pub const zscii = @import("zscii.zig");
+pub const session = @import("session.zig");
 
 test {
     _ = @import("memory.zig");
@@ -20,6 +21,8 @@ test {
     _ = @import("dictionary.zig");
     _ = @import("machine.zig");
     _ = @import("opcodes.zig");
+    _ = @import("state.zig");
+    _ = @import("session.zig");
     _ = @import("ui.zig");
     _ = @import("text_ui.zig");
     _ = @import("integration_test.zig");

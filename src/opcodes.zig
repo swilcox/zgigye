@@ -121,7 +121,13 @@ pub fn execute(m: *Machine, instr: *const Instruction) !void {
         .new_line => try m.ui.print("\n"),
 
         // --- Input ---
-        .sread => try m.readInput(args[0], args[1]),
+        .sread => m.readInput(args[0], args[1]) catch |err| {
+            // A non-blocking UI has no input queued yet: rewind so sread
+            // re-executes when the machine is resumed (readInput has no
+            // side effects before it asks the UI for a line).
+            if (err == error.InputPending) m.pc = instr.addr;
+            return err;
+        },
 
         // --- Miscellaneous ---
         .random => try store(m, instr, random(m, args[0])),
