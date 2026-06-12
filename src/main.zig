@@ -14,10 +14,16 @@ pub fn main(init: std.process.Init) !void {
 
     var story_path: ?[]const u8 = null;
     var plain = false;
+    var highlight_location = true;
+    var highlight_keywords = true;
     const args = try init.minimal.args.toSlice(arena);
     for (args[1..]) |arg| {
         if (std.mem.eql(u8, arg, "--plain")) {
             plain = true;
+        } else if (std.mem.eql(u8, arg, "--no-highlight-location")) {
+            highlight_location = false;
+        } else if (std.mem.eql(u8, arg, "--no-highlight-keywords")) {
+            highlight_keywords = false;
         } else if (story_path == null) {
             story_path = arg;
         } else {
@@ -26,7 +32,10 @@ pub fn main(init: std.process.Init) !void {
         }
     }
     const path = story_path orelse {
-        std.debug.print("usage: {s} [--plain] <story-file.z3>\n", .{args[0]});
+        std.debug.print(
+            "usage: {s} [--plain] [--no-highlight-location] [--no-highlight-keywords] <story-file.z3>\n",
+            .{args[0]},
+        );
         std.process.exit(1);
     };
 
@@ -40,7 +49,14 @@ pub fn main(init: std.process.Init) !void {
     if (plain or !is_terminal) {
         try runPlain(arena, io, story);
     } else {
-        try runTui(init, story, std.fs.path.basename(path));
+        const vocab: []const []const u8 = if (highlight_keywords)
+            (try zgigye.highlight.Vocabulary.fromStory(arena, story)).names
+        else
+            &.{};
+        try runTui(init, story, std.fs.path.basename(path), .{
+            .vocab = vocab,
+            .highlight_location = highlight_location,
+        });
     }
 }
 
@@ -67,8 +83,8 @@ fn runPlain(arena: std.mem.Allocator, io: Io, story: []const u8) !void {
     try stdout_writer.interface.flush();
 }
 
-fn runTui(init: std.process.Init, story: []const u8, title: []const u8) !void {
-    const tui = try TuiUi.create(init.gpa, init.io, init.environ_map, title);
+fn runTui(init: std.process.Init, story: []const u8, title: []const u8, options: TuiUi.Options) !void {
+    const tui = try TuiUi.create(init.gpa, init.io, init.environ_map, title, options);
     defer tui.destroy();
 
     const machine = try zgigye.Machine.create(init.arena.allocator(), story, tui.ui());

@@ -7,6 +7,7 @@ const std = @import("std");
 const Machine = @import("machine.zig").Machine;
 const TextUi = @import("text_ui.zig").TextUi;
 const session = @import("session.zig");
+const highlight = @import("highlight.zig");
 
 const czech_story = @embedFile("testdata/czech.z3");
 const minizork_story = @embedFile("testdata/minizork.z3");
@@ -65,6 +66,35 @@ test "minizork accepts commands and quits" {
             return error.UnexpectedOutput;
         }
     }
+}
+
+test "vocabulary extraction and annotation on a real story" {
+    const gpa = std.testing.allocator;
+    var vocab = try highlight.Vocabulary.fromStory(gpa, minizork_story);
+    defer vocab.deinit(gpa);
+
+    for ([_][]const u8{ "small mailbox", "leaflet", "West of House" }) |expected| {
+        var found = false;
+        for (vocab.names) |name| {
+            if (std.mem.eql(u8, name, expected)) found = true;
+        }
+        if (!found) {
+            std.debug.print("vocabulary missing: {s}\n", .{expected});
+            return error.MissingName;
+        }
+    }
+
+    const spans = try highlight.annotate(
+        gpa,
+        vocab.names,
+        "West of House",
+        "West of House\nThere is a small mailbox here.",
+    );
+    defer gpa.free(spans);
+    try std.testing.expectEqual(@as(usize, 4), spans.len);
+    try std.testing.expectEqual(highlight.Kind.location, spans[0].kind);
+    try std.testing.expectEqualStrings("small mailbox", spans[2].text);
+    try std.testing.expectEqual(highlight.Kind.keyword, spans[2].kind);
 }
 
 test "session suspend/resume is invisible to the game" {

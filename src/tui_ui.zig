@@ -22,6 +22,22 @@ const Event = union(enum) {
 const title_style = vaxis.Style{ .bg = .{ .index = 4 }, .fg = .{ .index = 15 }, .bold = true };
 const footer_style = vaxis.Style{ .reverse = true, .dim = true };
 const prompt_style = vaxis.Style{ .bold = true, .fg = .{ .index = 6 } };
+const location_style = vaxis.Style{ .bold = true };
+const keyword_style = vaxis.Style{ .italic = true };
+
+/// One word-wrapped display row: a slice of the transcript plus where it
+/// starts, so highlight marks (kept in transcript offsets) can be overlaid.
+const Row = struct {
+    text: []const u8,
+    off: usize,
+};
+
+/// A styled region of the transcript, in transcript byte offsets.
+const Mark = struct {
+    start: usize,
+    end: usize,
+    kind: zgigye.highlight.Kind,
+};
 
 pub const TuiUi = struct {
     gpa: Allocator,
@@ -33,10 +49,15 @@ pub const TuiUi = struct {
 
     /// Story name shown in the title bar.
     title: []const u8,
+    options: Options,
     /// Everything the game has printed, with '\n' separators.
     transcript: std.ArrayList(u8),
     /// Transcript word-wrapped to the current width (slices into transcript).
-    rows: std.ArrayList([]const u8),
+    rows: std.ArrayList(Row),
+    /// Highlighted regions, ordered by start offset.
+    marks: std.ArrayList(Mark),
+    /// Start of the transcript tail that has not been annotated yet.
+    pending_start: usize = 0,
     /// How many rows the user has scrolled up from the bottom.
     scroll: usize = 0,
     /// The game's own trailing ">" prompt was hidden for this read; it is
@@ -44,6 +65,19 @@ pub const TuiUi = struct {
     prompt_stripped: bool = false,
     status_text: [128]u8 = undefined,
     status_len: usize = 0,
+    /// The current location name (the raw string, unlike `status_text`),
+    /// for highlighting its occurrences in the transcript.
+    location_text: [128]u8 = undefined,
+    location_len: usize = 0,
+
+    pub const Options = struct {
+        /// Object names to italicize, longest-first (see
+        /// `highlight.Vocabulary`); empty disables keyword highlighting.
+        /// The slices must outlive the TuiUi.
+        vocab: []const []const u8 = &.{},
+        /// Embolden the current location's name in the transcript.
+        highlight_location: bool = true,
+    };
 
     /// Heap-allocated because the event loop holds pointers into the struct.
     pub fn create(
@@ -51,6 +85,7 @@ pub const TuiUi = struct {
         io: std.Io,
         environ_map: *std.process.Environ.Map,
         title: []const u8,
+        options: Options,
     ) !*TuiUi {
         const self = try gpa.create(TuiUi);
         errdefer gpa.destroy(self);
@@ -63,8 +98,10 @@ pub const TuiUi = struct {
             .loop = undefined,
             .input = vaxis.widgets.TextInput.init(gpa),
             .title = title,
+            .options = options,
             .transcript = .empty,
             .rows = .empty,
+            .marks = .empty,
         };
         self.tty = try vaxis.Tty.init(io, &self.tty_buffer);
         self.vx = try vaxis.init(io, gpa, environ_map, .{});
@@ -84,6 +121,7 @@ pub const TuiUi = struct {
         self.vx.deinit(gpa, self.tty.writer());
         self.tty.deinit();
         self.input.deinit();
+        self.marks.deinit(gpa);
         self.rows.deinit(gpa);
         self.transcript.deinit(gpa);
         gpa.destroy(self);
@@ -96,6 +134,7 @@ pub const TuiUi = struct {
     /// Keep the final screen up until a key is pressed; without this the
     /// game's parting words would vanish with the alternate screen.
     pub fn waitForExit(self: *TuiUi) !void {
+        try self.annotatePending(); // the game's parting words
         try self.appendTranscript("\n[ Press any key to exit. ]");
         try self.render();
         while (true) {
@@ -129,6 +168,10 @@ pub const TuiUi = struct {
     fn readLine(ptr: *anyopaque, buf: []u8) anyerror![]const u8 {
         const self: *TuiUi = @ptrCast(@alignCast(ptr));
         self.stripPrompt();
+        // The location is reliable here (sread updates the status first),
+        // which print time can't promise: the opening room title is
+        // printed before the very first status update.
+        try self.annotatePending();
         try self.render();
         while (true) {
             switch (try self.loop.nextEvent()) {
@@ -151,6 +194,8 @@ pub const TuiUi = struct {
 
     fn showStatus(ptr: *anyopaque, status: StatusLine) anyerror!void {
         const self: *TuiUi = @ptrCast(@alignCast(ptr));
+        self.location_len = @min(status.location.len, self.location_text.len);
+        @memcpy(self.location_text[0..self.location_len], status.location[0..self.location_len]);
         var writer = std.Io.Writer.fixed(&self.status_text);
         switch (status.progress) {
             .score => |s| writer.print("{s}  |  Score: {d}  Moves: {d}", .{
@@ -172,6 +217,34 @@ pub const TuiUi = struct {
     fn appendTranscript(self: *TuiUi, text: []const u8) !void {
         try self.transcript.appendSlice(self.gpa, text);
         self.scroll = 0; // new output snaps the view back to the bottom
+    }
+
+    /// Annotate everything printed since the last input pause, recording
+    /// highlight marks in transcript offsets. Echoed commands and system
+    /// messages are appended afterwards, so they stay plain.
+    fn annotatePending(self: *TuiUi) !void {
+        const tail = self.transcript.items[self.pending_start..];
+        defer self.pending_start = self.transcript.items.len;
+        if (tail.len == 0) return;
+        const location: ?[]const u8 = if (self.options.highlight_location and self.location_len > 0)
+            self.location_text[0..self.location_len]
+        else
+            null;
+        if (location == null and self.options.vocab.len == 0) return;
+
+        const spans = try zgigye.highlight.annotate(self.gpa, self.options.vocab, location, tail);
+        defer self.gpa.free(spans);
+        var off = self.pending_start;
+        for (spans) |span| {
+            if (span.kind != .plain) {
+                try self.marks.append(self.gpa, .{
+                    .start = off,
+                    .end = off + span.text.len,
+                    .kind = span.kind,
+                });
+            }
+            off += span.text.len;
+        }
     }
 
     /// The game usually prints its own "> " just before reading; hide it
@@ -250,10 +323,7 @@ pub const TuiUi = struct {
         if (self.scroll > max_scroll) self.scroll = max_scroll;
         const first = self.rows.items.len -| visible -| self.scroll;
         for (self.rows.items[first..@min(first + visible, self.rows.items.len)], 0..) |row, i| {
-            _ = out_win.printSegment(
-                .{ .text = row },
-                .{ .row_offset = @intCast(i), .wrap = .none },
-            );
+            self.printRow(out_win, row, @intCast(i));
         }
 
         // Input line: prompt plus the text-input widget.
@@ -271,23 +341,70 @@ pub const TuiUi = struct {
         try self.tty.writer().flush();
     }
 
+    /// Draw one transcript row, splitting it into styled segments where
+    /// highlight marks overlap it. Marks live in transcript offsets, so a
+    /// phrase wrapped across two rows is styled in both.
+    fn printRow(self: *TuiUi, win: vaxis.Window, row: Row, row_index: u16) void {
+        var segments: [max_row_segments]vaxis.Segment = undefined;
+        var count: usize = 0;
+        const row_end = row.off + row.text.len;
+
+        var pos = row.off;
+        for (self.marks.items) |mark| {
+            if (mark.end <= pos) continue;
+            if (mark.start >= row_end or count + 2 >= segments.len) break;
+            const start = @max(mark.start, pos);
+            if (start > pos) {
+                segments[count] = .{ .text = self.sliceTranscript(pos, start) };
+                count += 1;
+            }
+            const end = @min(mark.end, row_end);
+            segments[count] = .{
+                .text = self.sliceTranscript(start, end),
+                .style = switch (mark.kind) {
+                    .location => location_style,
+                    .keyword => keyword_style,
+                    .plain => .{},
+                },
+            };
+            count += 1;
+            pos = end;
+        }
+        if (pos < row_end) {
+            segments[count] = .{ .text = self.sliceTranscript(pos, row_end) };
+            count += 1;
+        }
+        _ = win.print(segments[0..count], .{ .row_offset = row_index, .wrap = .none });
+    }
+
+    const max_row_segments = 32;
+
+    fn sliceTranscript(self: *TuiUi, start: usize, end: usize) []const u8 {
+        return self.transcript.items[start..end];
+    }
+
     /// Re-wrap the transcript for the given width. Rows are slices into
     /// the transcript buffer, so this allocates only list storage.
     fn rebuildRows(self: *TuiUi, width: u16) !void {
         self.rows.clearRetainingCapacity();
         var lines = std.mem.splitScalar(u8, self.transcript.items, '\n');
+        var line_off: usize = 0;
         while (lines.next()) |line| {
-            try wrapLine(self.gpa, &self.rows, line, width);
+            try wrapLine(self.gpa, &self.rows, line, line_off, width);
+            line_off += line.len + 1; // the '\n'
         }
     }
 };
 
 /// Word-wrap one line to `width` columns (counting codepoints), splitting
 /// at spaces where possible and mid-word only when a word is too long.
+/// `line_off` is the line's offset within the transcript, recorded per
+/// row so highlight marks can be mapped back onto wrapped rows.
 fn wrapLine(
     gpa: Allocator,
-    rows: *std.ArrayList([]const u8),
+    rows: *std.ArrayList(Row),
     line: []const u8,
+    line_off: usize,
     width: usize,
 ) !void {
     if (width == 0) return;
@@ -303,14 +420,14 @@ fn wrapLine(
             col += 1;
         }
         if (i >= line.len) {
-            try rows.append(gpa, line[start..]);
+            try rows.append(gpa, .{ .text = line[start..], .off = line_off + start });
             return;
         }
         if (last_space) |space| {
-            try rows.append(gpa, line[start..space]);
+            try rows.append(gpa, .{ .text = line[start..space], .off = line_off + start });
             start = space + 1;
         } else {
-            try rows.append(gpa, line[start..i]);
+            try rows.append(gpa, .{ .text = line[start..i], .off = line_off + start });
             start = i;
         }
     }
@@ -318,27 +435,32 @@ fn wrapLine(
 
 test "wrapLine wraps at word boundaries" {
     const gpa = std.testing.allocator;
-    var rows: std.ArrayList([]const u8) = .empty;
+    var rows: std.ArrayList(Row) = .empty;
     defer rows.deinit(gpa);
 
-    try wrapLine(gpa, &rows, "the quick brown fox jumps", 10);
+    try wrapLine(gpa, &rows, "the quick brown fox jumps", 100, 10);
     try std.testing.expectEqual(@as(usize, 3), rows.items.len);
-    try std.testing.expectEqualStrings("the quick", rows.items[0]);
-    try std.testing.expectEqualStrings("brown fox", rows.items[1]);
-    try std.testing.expectEqualStrings("jumps", rows.items[2]);
+    try std.testing.expectEqualStrings("the quick", rows.items[0].text);
+    try std.testing.expectEqualStrings("brown fox", rows.items[1].text);
+    try std.testing.expectEqualStrings("jumps", rows.items[2].text);
+    // Row offsets are transcript-absolute: line offset plus position.
+    try std.testing.expectEqual(@as(usize, 100), rows.items[0].off);
+    try std.testing.expectEqual(@as(usize, 110), rows.items[1].off);
+    try std.testing.expectEqual(@as(usize, 120), rows.items[2].off);
 }
 
 test "wrapLine hard-breaks overlong words and keeps empty lines" {
     const gpa = std.testing.allocator;
-    var rows: std.ArrayList([]const u8) = .empty;
+    var rows: std.ArrayList(Row) = .empty;
     defer rows.deinit(gpa);
 
-    try wrapLine(gpa, &rows, "", 5);
+    try wrapLine(gpa, &rows, "", 0, 5);
     try std.testing.expectEqual(@as(usize, 1), rows.items.len);
-    try std.testing.expectEqualStrings("", rows.items[0]);
+    try std.testing.expectEqualStrings("", rows.items[0].text);
 
     rows.clearRetainingCapacity();
-    try wrapLine(gpa, &rows, "abcdefghij", 4);
+    try wrapLine(gpa, &rows, "abcdefghij", 0, 4);
     try std.testing.expectEqual(@as(usize, 3), rows.items.len);
-    try std.testing.expectEqualStrings("abcd", rows.items[0]);
+    try std.testing.expectEqualStrings("abcd", rows.items[0].text);
+    try std.testing.expectEqual(@as(usize, 4), rows.items[1].off);
 }

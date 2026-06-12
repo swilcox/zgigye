@@ -24,6 +24,13 @@
     color: inherit; font: inherit; caret-color: #8be08b;
   }
   .system { color: #7e8294; font-style: italic; }
+  body.hl-loc .loc { font-weight: bold; }
+  body.hl-kw .kw { font-style: italic; }
+  #settings {
+    display: flex; gap: 1.5ch; justify-content: flex-end;
+    margin-top: 1.5em; color: #7e8294; font-size: 0.8em;
+  }
+  #settings label { display: flex; gap: 0.5ch; align-items: center; cursor: pointer; }
 </style>
 </head>
 <body>
@@ -32,6 +39,10 @@
   <pre id="output"></pre>
   <form id="form"><span class="prompt">&gt;</span><input id="input"
     autocomplete="off" autocapitalize="none" spellcheck="false" autofocus></form>
+  <div id="settings">
+    <label><input type="checkbox" id="opt-loc" checked> bold location</label>
+    <label><input type="checkbox" id="opt-kw" checked> italic keywords</label>
+  </div>
 </main>
 <script>
   let state = null;
@@ -59,11 +70,34 @@
     return res.json();
   }
 
+  // Highlight toggles: pure CSS class switches on <body>, so flipping one
+  // restyles the whole transcript, past turns included.
+  const kindClass = { location: "loc", keyword: "kw" };
+  for (const [id, cls] of [["opt-loc", "hl-loc"], ["opt-kw", "hl-kw"]]) {
+    const box = document.getElementById(id);
+    box.checked = localStorage.getItem(id) !== "off";
+    const apply = () => {
+      document.body.classList.toggle(cls, box.checked);
+      localStorage.setItem(id, box.checked ? "on" : "off");
+    };
+    box.addEventListener("change", apply);
+    apply();
+  }
+
   function show(turn) {
     if (!turn) return;
     // The game prints its own input prompt (usually ">") last; the input
-    // row below plays that role here, so drop it from the transcript.
-    append(turn.output.replace(/>\s*$/, ""));
+    // row below plays that role here, so drop it from the last span.
+    const spans = turn.output.slice();
+    if (spans.length) {
+      const last = spans[spans.length - 1];
+      const stripped = last.text.replace(/>\s*$/, "");
+      if (stripped !== last.text) {
+        spans.pop();
+        if (stripped) spans.push({ text: stripped, kind: last.kind });
+      }
+    }
+    for (const span of spans) append(span.text, kindClass[span.kind]);
     if (turn.status) {
       document.getElementById("location").textContent = turn.status.location;
       const p = turn.status.progress;

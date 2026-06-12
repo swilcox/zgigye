@@ -122,6 +122,23 @@ pub const ObjectTable = struct {
         try self.mem.writeByte(loc.addr, try self.mem.readByte(loc.addr) & ~loc.mask);
     }
 
+    /// Number of objects. The table has no explicit count; by convention
+    /// the entries run up to the lowest property table address (capped at
+    /// 255, the v3 limit).
+    pub fn count(self: ObjectTable) Error!u16 {
+        const first = self.base + default_count * 2;
+        var lowest_props: u32 = std.math.maxInt(u32);
+        var n: u16 = 0;
+        while (n < 255) {
+            const addr = first + @as(u32, n) * object_size;
+            if (addr + object_size > lowest_props) break;
+            const props = try self.mem.readWord(addr + properties_offset);
+            if (props != 0 and props < lowest_props) lowest_props = props;
+            n += 1;
+        }
+        return n;
+    }
+
     // --- Properties ---
 
     pub fn propertiesAddr(self: ObjectTable, obj: u16) Error!u32 {
@@ -247,6 +264,11 @@ test "tree relations and remove/insert" {
     try t.insertInto(2, 1);
     try std.testing.expectEqual(@as(u16, 2), try t.child(1));
     try std.testing.expectEqual(@as(u16, 3), try t.sibling(2));
+}
+
+test "count infers the table size from the first property table" {
+    const t = testTable();
+    try std.testing.expectEqual(@as(u16, 3), try t.count());
 }
 
 test "attributes set, test, clear" {

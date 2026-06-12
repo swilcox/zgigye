@@ -37,6 +37,7 @@ testable layers:
 | `src/machine.zig` | Call frames, evaluation stack, variables, the run loop |
 | `src/opcodes.zig` | The v3 instruction set, one switch (spec ch. 14-15) |
 | `src/ui.zig` | The frontend interface (`Ui` vtable) |
+| `src/highlight.zig` | Object-name vocabulary and output annotation for highlighting |
 | `src/state.zig` | Out-of-band machine-state snapshots (compact byte blobs) |
 | `src/session.zig` | Suspend-at-input/resume driver for non-blocking frontends |
 | `src/text_ui.zig` | Plain-text frontend over any `std.Io` reader/writer pair |
@@ -52,6 +53,18 @@ plus score/turns or time), so each frontend renders it natively. Two
 implementations exist: `TextUi` (plain text over generic `std.Io` streams,
 used for piped play and all tests) and `TuiUi` (full-screen libvaxis).
 The core library has no dependency on libvaxis; only the executable does.
+
+### Highlighting
+
+Rich frontends mark up the transcript: the current location in **bold**
+and object names (from the story's object table, e.g. *small mailbox*) in
+*italics*. The matching lives in `src/highlight.zig` — `Vocabulary`
+extracts the object short names from a story file and `annotate` splits
+output text into plain/location/keyword spans — so the TUI and the web
+page render the same spans their own way. Both highlights default to on:
+the TUI takes `--no-highlight-location` / `--no-highlight-keywords`, and
+the web page has two checkboxes (persisted in localStorage). Plain-text
+mode never styles anything.
 
 ### Suspend/resume and the web frontend
 
