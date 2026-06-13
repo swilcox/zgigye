@@ -38,6 +38,7 @@ testable layers:
 | `src/opcodes.zig` | The v3 instruction set, one switch (spec ch. 14-15) |
 | `src/ui.zig` | The frontend interface (`Ui` vtable) |
 | `src/highlight.zig` | Object-name vocabulary and output annotation for highlighting |
+| `src/debug.zig` | `$`-prefixed debugging commands that inspect machine state |
 | `src/state.zig` | Out-of-band machine-state snapshots (compact byte blobs) |
 | `src/session.zig` | Suspend-at-input/resume driver for non-blocking frontends |
 | `src/text_ui.zig` | Plain-text frontend over any `std.Io` reader/writer pair |
@@ -65,6 +66,29 @@ page render the same spans their own way. Both highlights default to on:
 the TUI takes `--no-highlight-location` / `--no-highlight-keywords`, and
 the web page has two checkboxes (persisted in localStorage). Plain-text
 mode never styles anything.
+
+### Debug commands
+
+Any input line beginning with `$` is intercepted before it reaches the
+parser and handled as a debugging command that peeks at machine state —
+it never mutates the machine or advances the turn, and the prompt returns
+for the next line. They work in every frontend (the report is printed
+through the `Ui` like any other output). `src/debug.zig` is part of the
+core library and, like the rest of it, touches no files or terminals.
+
+| Command | Shows |
+|---------|-------|
+| `$help` | the list of commands |
+| `$dump` | the program counter, call frames, and evaluation stack |
+| `$dict` | the story's dictionary |
+| `$tree` | the whole object tree |
+| `$room` | the sub-tree of the current location |
+| `$you` | the sub-tree of the player object |
+| `$object num`/`name` | an object's sub-tree |
+| `$attrs num`/`name` | an object's set attribute flags |
+| `$props num`/`name` | an object's properties |
+| `$find name` | object numbers whose name matches |
+| `$header` | the story header fields |
 
 ### Suspend/resume and the web frontend
 

@@ -18,6 +18,7 @@ const opcodes = @import("opcodes.zig");
 const ui_mod = @import("ui.zig");
 const Ui = ui_mod.Ui;
 const state = @import("state.zig");
+const debug = @import("debug.zig");
 
 pub const Error = error{
     StackUnderflow,
@@ -299,8 +300,18 @@ pub const Machine = struct {
 
         const max_len = try self.memory.readByte(text_addr);
         var buf: [256]u8 = undefined;
-        const raw = try self.ui.readLine(&buf);
-        const line = raw[0..@min(raw.len, max_len)];
+        const line = while (true) {
+            const raw = try self.ui.readLine(&buf);
+            // A line beginning with '$' is a debug command: handle it
+            // outside the machine, print the report, and read again for a
+            // real line. Debug commands never mutate the machine.
+            self.scratch.clearRetainingCapacity();
+            if (try debug.dispatch(self, &self.scratch.writer, raw)) {
+                try self.ui.print(self.scratch.written());
+                continue;
+            }
+            break raw[0..@min(raw.len, max_len)];
+        };
 
         // v3 text buffer: typed characters from byte 1, zero-terminated.
         for (line, 0..) |c, i| {

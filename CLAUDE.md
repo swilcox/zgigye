@@ -14,6 +14,7 @@
 - Suspend/resume: a non-blocking `Ui.readLine` returns `error.InputPending`; the sread handler rewinds the PC so the read re-executes on resume. `Machine.saveState`/`loadState` (format in `state.zig`) snapshot all mutable state; `loadState` treats blobs as untrusted and validates everything. `session.zig` is the pure turn-at-a-time wrapper.
 - Highlighting: `highlight.zig` (core, pure) extracts object names and annotates output into plain/location/keyword spans; frontends style the spans (TUI bold/italic via marks in transcript offsets, web via CSS classes). Annotate at input pauses, not print time — the opening room title prints before the first status update.
 - One module per spec concern; see the table in README.md. Opcode handlers live in one switch in `opcodes.zig`; `Machine.step` pre-advances the PC, so handlers only touch it for control flow.
+- Debug commands: input lines starting with `$` are intercepted in `Machine.readInput` (before tokenising) and dispatched to `debug.zig`, which inspects state read-only and writes a report through the `Ui`. They never mutate the machine or advance the turn, so all three frontends get them for free. `$you` finds the player by short-name heuristic (`you`/`cretin`/…).
 - Version 3 only, on purpose. Don't add v4+ branches speculatively.
 
 ## Testing

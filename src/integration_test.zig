@@ -129,6 +129,27 @@ test "session suspend/resume is invisible to the game" {
     try std.testing.expectEqualStrings("West of House", status.location);
 }
 
+test "a debug command in a session turn reports state and re-prompts" {
+    const gpa = std.testing.allocator;
+    const max_steps = 10_000_000;
+
+    var turn = try session.start(gpa, minizork_story, max_steps);
+    defer turn.deinit(gpa);
+
+    // A '$' command is answered without advancing the game: the report
+    // comes back as output and the game is still awaiting input (state is
+    // non-null), so the next command lands on the same turn.
+    const blob = turn.state orelse return error.GameEndedEarly;
+    var next = try session.advance(gpa, minizork_story, blob, "$room", max_steps);
+    defer next.deinit(gpa);
+
+    if (std.mem.indexOf(u8, next.output, "West of House") == null) {
+        std.debug.print("--- $room output ---\n{s}\n", .{next.output});
+        return error.UnexpectedOutput;
+    }
+    try std.testing.expect(next.state != null); // still our move
+}
+
 test "state snapshot restores into a fresh machine and resumes identically" {
     const gpa = std.testing.allocator;
 

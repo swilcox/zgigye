@@ -12,6 +12,7 @@ pub const Instruction = @import("instruction.zig").Instruction;
 pub const zscii = @import("zscii.zig");
 pub const session = @import("session.zig");
 pub const highlight = @import("highlight.zig");
+pub const debug = @import("debug.zig");
 
 test {
     _ = @import("memory.zig");
@@ -25,6 +26,7 @@ test {
     _ = @import("state.zig");
     _ = @import("session.zig");
     _ = @import("highlight.zig");
+    _ = @import("debug.zig");
     _ = @import("ui.zig");
     _ = @import("text_ui.zig");
     _ = @import("integration_test.zig");
