@@ -65,8 +65,6 @@ pub fn main(init: std.process.Init) !void {
         std.process.exit(1);
     };
 
-    const vocab = try zgigye.highlight.Vocabulary.fromStory(arena, story);
-
     const address: Io.net.IpAddress = .{ .ip4 = .loopback(port) };
     var server = try address.listen(io, .{ .reuse_address = true });
     std.debug.print("serving {s} on http://127.0.0.1:{d}/\n", .{ path, port });
@@ -81,7 +79,7 @@ pub fn main(init: std.process.Init) !void {
         };
         // One connection at a time: plenty for a demo, and the machine
         // itself only ever runs between receiving a request and replying.
-        serveConnection(io, &request_arena, story, vocab.names, stream);
+        serveConnection(io, &request_arena, story, stream);
         stream.close(io);
     }
 }
@@ -95,7 +93,6 @@ fn serveConnection(
     io: Io,
     request_arena: *std.heap.ArenaAllocator,
     story: []const u8,
-    vocab: []const []const u8,
     stream: Io.net.Stream,
 ) void {
     var recv_buffer: [16 * 1024]u8 = undefined;
@@ -107,14 +104,13 @@ fn serveConnection(
     while (true) {
         var request = http_server.receiveHead() catch return; // closed or malformed
         defer _ = request_arena.reset(.retain_capacity);
-        handleRequest(request_arena.allocator(), story, vocab, &request) catch return;
+        handleRequest(request_arena.allocator(), story, &request) catch return;
     }
 }
 
 fn handleRequest(
     arena: std.mem.Allocator,
     story: []const u8,
-    vocab: []const []const u8,
     request: *std.http.Server.Request,
 ) !void {
     const method = request.head.method;
@@ -130,7 +126,7 @@ fn handleRequest(
         try drainBody(request);
         const turn = session.start(arena, story, max_steps_per_turn) catch
             return respondError(request, .internal_server_error, "the story crashed");
-        return respondTurn(arena, vocab, request, turn);
+        return respondTurn(arena, request, turn);
     }
 
     if (method == .POST and std.mem.eql(u8, target, "/turn")) {
@@ -161,7 +157,7 @@ fn handleRequest(
                 error.InvalidState => return respondError(request, .bad_request, "state does not match this story"),
                 else => return respondError(request, .internal_server_error, "the story crashed"),
             };
-        return respondTurn(arena, vocab, request, turn);
+        return respondTurn(arena, request, turn);
     }
 
     return respondError(request, .not_found, "not found");
@@ -169,7 +165,6 @@ fn handleRequest(
 
 fn respondTurn(
     arena: std.mem.Allocator,
-    vocab: []const []const u8,
     request: *std.http.Server.Request,
     turn: session.Turn,
 ) !void {
@@ -179,12 +174,10 @@ fn respondTurn(
         break :blk encoder.encode(buf, blob);
     } else null;
 
-    // Display choices stay client-side; the server always annotates.
-    const location: ?[]const u8 = if (turn.status) |s| s.location else null;
-    const spans = try zgigye.highlight.annotate(arena, vocab, location, turn.output);
-
+    // The object-name spans were recorded as the game printed; the client
+    // decides whether to show each kind.
     const payload: TurnResponse = .{
-        .output = spans,
+        .output = turn.spans,
         .status = if (turn.status) |s| .{ .location = s.location, .progress = s.progress } else null,
         .state = state_b64,
     };

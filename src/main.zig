@@ -7,6 +7,7 @@ const std = @import("std");
 const Io = std.Io;
 const zgigye = @import("zgigye");
 const TuiUi = @import("tui_ui.zig").TuiUi;
+const theme = @import("theme.zig");
 
 pub fn main(init: std.process.Init) !void {
     const arena = init.arena.allocator();
@@ -16,14 +17,27 @@ pub fn main(init: std.process.Init) !void {
     var plain = false;
     var highlight_location = true;
     var highlight_keywords = true;
+    var selected_theme = theme.default;
     const args = try init.minimal.args.toSlice(arena);
-    for (args[1..]) |arg| {
+    var i: usize = 1;
+    while (i < args.len) : (i += 1) {
+        const arg = args[i];
         if (std.mem.eql(u8, arg, "--plain")) {
             plain = true;
         } else if (std.mem.eql(u8, arg, "--no-highlight-location")) {
             highlight_location = false;
         } else if (std.mem.eql(u8, arg, "--no-highlight-keywords")) {
             highlight_keywords = false;
+        } else if (std.mem.eql(u8, arg, "--theme")) {
+            i += 1;
+            if (i >= args.len) {
+                story_path = null;
+                break;
+            }
+            selected_theme = theme.byName(args[i]) orelse {
+                std.debug.print("error: unknown theme '{s}' (available: {s})\n", .{ args[i], theme.names });
+                std.process.exit(1);
+            };
         } else if (story_path == null) {
             story_path = arg;
         } else {
@@ -33,7 +47,7 @@ pub fn main(init: std.process.Init) !void {
     }
     const path = story_path orelse {
         std.debug.print(
-            "usage: {s} [--plain] [--no-highlight-location] [--no-highlight-keywords] <story-file.z3>\n",
+            "usage: {s} [--plain] [--no-highlight-location] [--no-highlight-keywords] [--theme name] <story-file.z3>\n",
             .{args[0]},
         );
         std.process.exit(1);
@@ -49,13 +63,10 @@ pub fn main(init: std.process.Init) !void {
     if (plain or !is_terminal) {
         try runPlain(arena, io, story);
     } else {
-        const vocab: []const []const u8 = if (highlight_keywords)
-            (try zgigye.highlight.Vocabulary.fromStory(arena, story)).names
-        else
-            &.{};
         try runTui(init, story, std.fs.path.basename(path), .{
-            .vocab = vocab,
             .highlight_location = highlight_location,
+            .highlight_keywords = highlight_keywords,
+            .theme = selected_theme,
         });
     }
 }
@@ -100,4 +111,5 @@ fn runTui(init: std.process.Init, story: []const u8, title: []const u8, options:
 
 test {
     _ = @import("tui_ui.zig");
+    _ = @import("theme.zig");
 }

@@ -267,9 +267,14 @@ pub const Machine = struct {
         try self.ui.print(self.scratch.written());
     }
 
-    /// Print an object's short name (used by print_obj and the status line).
+    /// Print an object's short name (the print_obj opcode). It travels
+    /// through the object-name channel, tagged with whether the object is
+    /// the current location (global 0), so frontends can highlight it.
     pub fn printObjectName(self: *Machine, obj: u16) !void {
-        if (try self.objects.nameAddr(obj)) |addr| try self.printZString(addr);
+        const addr = (try self.objects.nameAddr(obj)) orelse return;
+        self.scratch.clearRetainingCapacity();
+        try zscii.decode(&self.memory, self.header.abbreviations, addr, &self.scratch.writer);
+        try self.ui.printObject(self.scratch.written(), obj == try self.readGlobal(0));
     }
 
     pub fn updateStatus(self: *Machine) !void {

@@ -13,17 +13,13 @@ const vaxis = @import("vaxis");
 const zgigye = @import("zgigye");
 const Ui = zgigye.Ui;
 const StatusLine = zgigye.StatusLine;
+const theme_mod = @import("theme.zig");
+pub const Theme = theme_mod.Theme;
 
 const Event = union(enum) {
     key_press: vaxis.Key,
     winsize: vaxis.Winsize,
 };
-
-const title_style = vaxis.Style{ .bg = .{ .index = 4 }, .fg = .{ .index = 15 }, .bold = true };
-const footer_style = vaxis.Style{ .reverse = true, .dim = true };
-const prompt_style = vaxis.Style{ .bold = true, .fg = .{ .index = 6 } };
-const location_style = vaxis.Style{ .bold = true };
-const keyword_style = vaxis.Style{ .italic = true };
 
 /// One word-wrapped display row: a slice of the transcript plus where it
 /// starts, so highlight marks (kept in transcript offsets) can be overlaid.
@@ -56,8 +52,6 @@ pub const TuiUi = struct {
     rows: std.ArrayList(Row),
     /// Highlighted regions, ordered by start offset.
     marks: std.ArrayList(Mark),
-    /// Start of the transcript tail that has not been annotated yet.
-    pending_start: usize = 0,
     /// How many rows the user has scrolled up from the bottom.
     scroll: usize = 0,
     /// The game's own trailing ">" prompt was hidden for this read; it is
@@ -65,18 +59,14 @@ pub const TuiUi = struct {
     prompt_stripped: bool = false,
     status_text: [128]u8 = undefined,
     status_len: usize = 0,
-    /// The current location name (the raw string, unlike `status_text`),
-    /// for highlighting its occurrences in the transcript.
-    location_text: [128]u8 = undefined,
-    location_len: usize = 0,
 
     pub const Options = struct {
-        /// Object names to italicize, longest-first (see
-        /// `highlight.Vocabulary`); empty disables keyword highlighting.
-        /// The slices must outlive the TuiUi.
-        vocab: []const []const u8 = &.{},
-        /// Embolden the current location's name in the transcript.
+        /// Embolden the current location's name where the game prints it.
         highlight_location: bool = true,
+        /// Italicize other object names where the game prints them.
+        highlight_keywords: bool = true,
+        /// Colours and attributes for each styled element.
+        theme: Theme = theme_mod.default,
     };
 
     /// Heap-allocated because the event loop holds pointers into the struct.
@@ -134,7 +124,6 @@ pub const TuiUi = struct {
     /// Keep the final screen up until a key is pressed; without this the
     /// game's parting words would vanish with the alternate screen.
     pub fn waitForExit(self: *TuiUi) !void {
-        try self.annotatePending(); // the game's parting words
         try self.appendTranscript("\n[ Press any key to exit. ]");
         try self.render();
         while (true) {
@@ -156,6 +145,7 @@ pub const TuiUi = struct {
 
     const vtable = Ui.VTable{
         .print = print,
+        .printObject = printObject,
         .readLine = readLine,
         .showStatus = showStatus,
     };
@@ -165,13 +155,24 @@ pub const TuiUi = struct {
         try self.appendTranscript(text);
     }
 
+    /// An object name (from print_obj): append it and record a highlight
+    /// mark over those bytes, unless that kind is disabled. Plain output
+    /// (`print`) never marks, so echoed commands and prose stay plain.
+    fn printObject(ptr: *anyopaque, text: []const u8, location: bool) anyerror!void {
+        const self: *TuiUi = @ptrCast(@alignCast(ptr));
+        const start = self.transcript.items.len;
+        try self.appendTranscript(text);
+        const enabled = if (location) self.options.highlight_location else self.options.highlight_keywords;
+        if (enabled) try self.marks.append(self.gpa, .{
+            .start = start,
+            .end = self.transcript.items.len,
+            .kind = if (location) .location else .keyword,
+        });
+    }
+
     fn readLine(ptr: *anyopaque, buf: []u8) anyerror![]const u8 {
         const self: *TuiUi = @ptrCast(@alignCast(ptr));
         self.stripPrompt();
-        // The location is reliable here (sread updates the status first),
-        // which print time can't promise: the opening room title is
-        // printed before the very first status update.
-        try self.annotatePending();
         try self.render();
         while (true) {
             switch (try self.loop.nextEvent()) {
@@ -194,8 +195,6 @@ pub const TuiUi = struct {
 
     fn showStatus(ptr: *anyopaque, status: StatusLine) anyerror!void {
         const self: *TuiUi = @ptrCast(@alignCast(ptr));
-        self.location_len = @min(status.location.len, self.location_text.len);
-        @memcpy(self.location_text[0..self.location_len], status.location[0..self.location_len]);
         var writer = std.Io.Writer.fixed(&self.status_text);
         switch (status.progress) {
             .score => |s| writer.print("{s}  |  Score: {d}  Moves: {d}", .{
@@ -217,34 +216,6 @@ pub const TuiUi = struct {
     fn appendTranscript(self: *TuiUi, text: []const u8) !void {
         try self.transcript.appendSlice(self.gpa, text);
         self.scroll = 0; // new output snaps the view back to the bottom
-    }
-
-    /// Annotate everything printed since the last input pause, recording
-    /// highlight marks in transcript offsets. Echoed commands and system
-    /// messages are appended afterwards, so they stay plain.
-    fn annotatePending(self: *TuiUi) !void {
-        const tail = self.transcript.items[self.pending_start..];
-        defer self.pending_start = self.transcript.items.len;
-        if (tail.len == 0) return;
-        const location: ?[]const u8 = if (self.options.highlight_location and self.location_len > 0)
-            self.location_text[0..self.location_len]
-        else
-            null;
-        if (location == null and self.options.vocab.len == 0) return;
-
-        const spans = try zgigye.highlight.annotate(self.gpa, self.options.vocab, location, tail);
-        defer self.gpa.free(spans);
-        var off = self.pending_start;
-        for (spans) |span| {
-            if (span.kind != .plain) {
-                try self.marks.append(self.gpa, .{
-                    .start = off,
-                    .end = off + span.text.len,
-                    .kind = span.kind,
-                });
-            }
-            off += span.text.len;
-        }
     }
 
     /// The game usually prints its own "> " just before reading; hide it
@@ -300,17 +271,22 @@ pub const TuiUi = struct {
         const height = win.height;
         if (width < 4 or height < 4) return;
 
+        const theme = self.options.theme;
+        // Paint the whole screen with the body style; the bars below repaint
+        // their own rows, and the transcript text inherits the body colour.
+        win.fill(.{ .style = theme.body });
+
         // Title bar: story name left, status right.
         const title_bar = win.child(.{ .height = 1 });
-        title_bar.fill(.{ .style = title_style });
+        title_bar.fill(.{ .style = theme.title });
         _ = title_bar.printSegment(
-            .{ .text = self.title, .style = title_style },
+            .{ .text = self.title, .style = theme.title },
             .{ .col_offset = 1, .wrap = .none },
         );
         const status = self.status_text[0..self.status_len];
         if (status.len > 0 and width > status.len + 2) {
             _ = title_bar.printSegment(
-                .{ .text = status, .style = title_style },
+                .{ .text = status, .style = theme.title },
                 .{ .col_offset = @intCast(width - status.len - 1), .wrap = .none },
             );
         }
@@ -328,14 +304,14 @@ pub const TuiUi = struct {
 
         // Input line: prompt plus the text-input widget.
         const input_bar = win.child(.{ .y_off = height - 2, .height = 1 });
-        _ = input_bar.printSegment(.{ .text = "> ", .style = prompt_style }, .{ .wrap = .none });
+        _ = input_bar.printSegment(.{ .text = "> ", .style = theme.prompt }, .{ .wrap = .none });
         self.input.draw(input_bar.child(.{ .x_off = 2 }));
 
         // Footer: key hints.
         const footer = win.child(.{ .y_off = height - 1, .height = 1 });
-        footer.fill(.{ .style = footer_style });
+        footer.fill(.{ .style = theme.footer });
         const hints = if (self.scroll > 0) "[ scrolled - PgDn for latest ]" else "PgUp/PgDn scroll  |  Ctrl+C quit";
-        _ = footer.printSegment(.{ .text = hints, .style = footer_style }, .{ .col_offset = 1, .wrap = .none });
+        _ = footer.printSegment(.{ .text = hints, .style = theme.footer }, .{ .col_offset = 1, .wrap = .none });
 
         try self.vx.render(self.tty.writer());
         try self.tty.writer().flush();
@@ -349,29 +325,30 @@ pub const TuiUi = struct {
         var count: usize = 0;
         const row_end = row.off + row.text.len;
 
+        const body = self.options.theme.body;
         var pos = row.off;
         for (self.marks.items) |mark| {
             if (mark.end <= pos) continue;
             if (mark.start >= row_end or count + 2 >= segments.len) break;
             const start = @max(mark.start, pos);
             if (start > pos) {
-                segments[count] = .{ .text = self.sliceTranscript(pos, start) };
+                segments[count] = .{ .text = self.sliceTranscript(pos, start), .style = body };
                 count += 1;
             }
             const end = @min(mark.end, row_end);
             segments[count] = .{
                 .text = self.sliceTranscript(start, end),
                 .style = switch (mark.kind) {
-                    .location => location_style,
-                    .keyword => keyword_style,
-                    .plain => .{},
+                    .location => self.options.theme.location,
+                    .keyword => self.options.theme.keyword,
+                    .plain => body,
                 },
             };
             count += 1;
             pos = end;
         }
         if (pos < row_end) {
-            segments[count] = .{ .text = self.sliceTranscript(pos, row_end) };
+            segments[count] = .{ .text = self.sliceTranscript(pos, row_end), .style = body };
             count += 1;
         }
         _ = win.print(segments[0..count], .{ .row_offset = row_index, .wrap = .none });

@@ -18,6 +18,7 @@ pub const TextUi = struct {
 
     const vtable = Ui.VTable{
         .print = print,
+        .printObject = printObject,
         .readLine = readLine,
         .showStatus = showStatus,
     };
@@ -25,6 +26,11 @@ pub const TextUi = struct {
     fn print(ptr: *anyopaque, text: []const u8) anyerror!void {
         const self: *TextUi = @ptrCast(@alignCast(ptr));
         try self.out.writeAll(text);
+    }
+
+    fn printObject(ptr: *anyopaque, text: []const u8, _: bool) anyerror!void {
+        // Plain text never styles: an object name prints like any other text.
+        return print(ptr, text);
     }
 
     fn readLine(ptr: *anyopaque, buf: []u8) anyerror![]const u8 {

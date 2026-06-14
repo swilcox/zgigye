@@ -25,6 +25,11 @@ pub const Ui = struct {
     pub const VTable = struct {
         /// Write game output. Text is UTF-8; newlines are '\n'.
         print: *const fn (ptr: *anyopaque, text: []const u8) anyerror!void,
+        /// Write an object's short name, emitted by the print_obj opcode.
+        /// `location` is true when the object is the game's current location
+        /// (global 0). Rich frontends highlight it; plain frontends print it
+        /// like any other text.
+        printObject: *const fn (ptr: *anyopaque, text: []const u8, location: bool) anyerror!void,
         /// Read one line of player input into `buf`; returns the line
         /// without its newline. Implementations should flush any pending
         /// output first. A frontend that cannot block may return
@@ -38,6 +43,10 @@ pub const Ui = struct {
 
     pub fn print(self: Ui, text: []const u8) anyerror!void {
         return self.vtable.print(self.ptr, text);
+    }
+
+    pub fn printObject(self: Ui, text: []const u8, location: bool) anyerror!void {
+        return self.vtable.printObject(self.ptr, text, location);
     }
 
     pub fn readLine(self: Ui, buf: []u8) anyerror![]const u8 {

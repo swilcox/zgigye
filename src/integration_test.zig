@@ -7,7 +7,6 @@ const std = @import("std");
 const Machine = @import("machine.zig").Machine;
 const TextUi = @import("text_ui.zig").TextUi;
 const session = @import("session.zig");
-const highlight = @import("highlight.zig");
 
 const czech_story = @embedFile("testdata/czech.z3");
 const minizork_story = @embedFile("testdata/minizork.z3");
@@ -68,33 +67,33 @@ test "minizork accepts commands and quits" {
     }
 }
 
-test "vocabulary extraction and annotation on a real story" {
+test "object names are highlighted only where the game prints them" {
     const gpa = std.testing.allocator;
-    var vocab = try highlight.Vocabulary.fromStory(gpa, minizork_story);
-    defer vocab.deinit(gpa);
 
-    for ([_][]const u8{ "small mailbox", "leaflet", "West of House" }) |expected| {
-        var found = false;
-        for (vocab.names) |name| {
-            if (std.mem.eql(u8, name, expected)) found = true;
+    var turn = try session.start(gpa, minizork_story, 10_000_000);
+    defer turn.deinit(gpa);
+
+    // The room title is printed via print_obj, so it is a location span.
+    var saw_location = false;
+    // The hand-written field description mentions "house" and "door" as
+    // prose, not via print_obj, so those must never become object spans —
+    // this is exactly the over-highlighting the scan-based approach caused.
+    for (turn.spans) |span| {
+        if (span.kind == .location and std.mem.eql(u8, span.text, "West of House")) {
+            saw_location = true;
         }
-        if (!found) {
-            std.debug.print("vocabulary missing: {s}\n", .{expected});
-            return error.MissingName;
+        if (span.kind != .plain) {
+            try std.testing.expect(!std.mem.eql(u8, span.text, "house"));
+            try std.testing.expect(!std.mem.eql(u8, span.text, "door"));
         }
     }
+    try std.testing.expect(saw_location);
 
-    const spans = try highlight.annotate(
-        gpa,
-        vocab.names,
-        "West of House",
-        "West of House\nThere is a small mailbox here.",
-    );
-    defer gpa.free(spans);
-    try std.testing.expectEqual(@as(usize, 4), spans.len);
-    try std.testing.expectEqual(highlight.Kind.location, spans[0].kind);
-    try std.testing.expectEqualStrings("small mailbox", spans[2].text);
-    try std.testing.expectEqual(highlight.Kind.keyword, spans[2].kind);
+    // Concatenating the span texts reproduces the raw output exactly.
+    var reassembled: std.Io.Writer.Allocating = .init(gpa);
+    defer reassembled.deinit();
+    for (turn.spans) |span| try reassembled.writer.writeAll(span.text);
+    try std.testing.expectEqualStrings(turn.output, reassembled.written());
 }
 
 test "session suspend/resume is invisible to the game" {

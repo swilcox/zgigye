@@ -15,12 +15,17 @@ const Machine = @import("machine.zig").Machine;
 const ui_mod = @import("ui.zig");
 const Ui = ui_mod.Ui;
 const StatusLine = ui_mod.StatusLine;
+const highlight = @import("highlight.zig");
+const Span = highlight.Span;
 
 /// Everything that happened between two input prompts. Owned by the
 /// caller; free with `deinit`.
 pub const Turn = struct {
     /// All game output since the previous prompt.
     output: []u8,
+    /// `output` split into plain/location/keyword spans, marking the object
+    /// names the game printed. Span texts are slices into `output`.
+    spans: []Span,
     /// The most recent status line, if the game showed one.
     status: ?Status,
     /// Machine state to pass to `advance`; null when the game has ended.
@@ -33,6 +38,7 @@ pub const Turn = struct {
 
     pub fn deinit(self: *Turn, gpa: Allocator) void {
         gpa.free(self.output);
+        gpa.free(self.spans); // span texts alias `output`; freed with it
         if (self.status) |s| gpa.free(s.location);
         if (self.state) |s| gpa.free(s);
         self.* = undefined;
@@ -68,6 +74,7 @@ fn runTurn(
 ) !Turn {
     var channel = ChannelUi{ .gpa = gpa, .out = .init(gpa), .input = input };
     defer channel.out.deinit();
+    defer channel.marks.deinit(gpa);
     errdefer if (channel.status) |s| gpa.free(s.location);
 
     const machine = try Machine.create(gpa, story, channel.ui());
@@ -81,10 +88,14 @@ fn runTurn(
         else => return err,
     };
 
+    const output = try channel.out.toOwnedSlice();
+    errdefer gpa.free(output);
+    const spans = try highlight.spansFromMarks(gpa, output, channel.marks.items);
+    errdefer gpa.free(spans);
     const new_state = if (awaiting_input) try machine.saveState(gpa) else null;
-    errdefer if (new_state) |s| gpa.free(s);
     return .{
-        .output = try channel.out.toOwnedSlice(),
+        .output = output,
+        .spans = spans,
         .status = channel.status,
         .state = new_state,
     };
@@ -95,6 +106,9 @@ fn runTurn(
 const ChannelUi = struct {
     gpa: Allocator,
     out: std.Io.Writer.Allocating,
+    /// Object-name regions, in offsets into `out`, recorded as the game
+    /// prints them via print_obj.
+    marks: std.ArrayList(highlight.Mark) = .empty,
     input: ?[]const u8,
     status: ?Turn.Status = null,
 
@@ -104,6 +118,7 @@ const ChannelUi = struct {
 
     const vtable = Ui.VTable{
         .print = print,
+        .printObject = printObject,
         .readLine = readLine,
         .showStatus = showStatus,
     };
@@ -111,6 +126,17 @@ const ChannelUi = struct {
     fn print(ptr: *anyopaque, text: []const u8) anyerror!void {
         const self: *ChannelUi = @ptrCast(@alignCast(ptr));
         try self.out.writer.writeAll(text);
+    }
+
+    fn printObject(ptr: *anyopaque, text: []const u8, location: bool) anyerror!void {
+        const self: *ChannelUi = @ptrCast(@alignCast(ptr));
+        const offset = self.out.written().len;
+        try self.out.writer.writeAll(text);
+        try self.marks.append(self.gpa, .{
+            .start = offset,
+            .len = text.len,
+            .kind = if (location) .location else .keyword,
+        });
     }
 
     fn readLine(ptr: *anyopaque, buf: []u8) anyerror![]const u8 {

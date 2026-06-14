@@ -17,9 +17,9 @@ When attached to a terminal the interpreter runs a full-screen TUI (built
 on [libvaxis](https://github.com/rockorager/libvaxis)): a title bar with
 the story name and live status (location, score/moves or time), a
 word-wrapped scrolling transcript (PgUp/PgDn), an input line, and a footer
-with key hints. With `--plain`, or whenever stdin/stdout is not a
-terminal, it falls back to plain text — so piping commands in keeps
-working.
+with key hints. `--theme <name>` picks the colour theme (`default`, `mono`,
+or `c64`). With `--plain`, or whenever stdin/stdout is not a terminal, it
+falls back to plain text — so piping commands in keeps working.
 
 ## Architecture
 
@@ -37,12 +37,13 @@ testable layers:
 | `src/machine.zig` | Call frames, evaluation stack, variables, the run loop |
 | `src/opcodes.zig` | The v3 instruction set, one switch (spec ch. 14-15) |
 | `src/ui.zig` | The frontend interface (`Ui` vtable) |
-| `src/highlight.zig` | Object-name vocabulary and output annotation for highlighting |
+| `src/highlight.zig` | Span model for object-name highlighting (marked at `print_obj`) |
 | `src/debug.zig` | `$`-prefixed debugging commands that inspect machine state |
 | `src/state.zig` | Out-of-band machine-state snapshots (compact byte blobs) |
 | `src/session.zig` | Suspend-at-input/resume driver for non-blocking frontends |
 | `src/text_ui.zig` | Plain-text frontend over any `std.Io` reader/writer pair |
 | `src/tui_ui.zig` | Full-screen libvaxis frontend (exe only, not in the library) |
+| `src/theme.zig` | TUI colour themes: a `vaxis.Style` per styled element (exe only) |
 | `src/main.zig` | CLI entry point; picks the frontend and wires it up |
 | `src/serve.zig` | Demo HTTP frontend, one request per turn (exe only) |
 
@@ -58,14 +59,26 @@ The core library has no dependency on libvaxis; only the executable does.
 ### Highlighting
 
 Rich frontends mark up the transcript: the current location in **bold**
-and object names (from the story's object table, e.g. *small mailbox*) in
-*italics*. The matching lives in `src/highlight.zig` — `Vocabulary`
-extracts the object short names from a story file and `annotate` splits
-output text into plain/location/keyword spans — so the TUI and the web
-page render the same spans their own way. Both highlights default to on:
-the TUI takes `--no-highlight-location` / `--no-highlight-keywords`, and
-the web page has two checkboxes (persisted in localStorage). Plain-text
-mode never styles anything.
+and other object names (e.g. *small mailbox*) in *italics*. Highlighting
+is decided at print time — when the game runs the `print_obj` opcode the
+core tags that text as an object name (location if it is the current
+location in global 0, keyword otherwise) and passes it through
+`Ui.printObject`. So only the names the game actually prints *as objects*
+are marked, never a word that merely appears in a room description.
+Frontends collect those marks over a turn and render them their own way;
+`src/highlight.zig` holds the span types and assembles the flat span list
+(`spansFromMarks`). Both highlights default to on: the TUI takes
+`--no-highlight-location` / `--no-highlight-keywords`, and the web page
+has two checkboxes (persisted in localStorage). Plain-text mode never
+styles anything.
+
+In the TUI the actual colours and attributes come from the theme (see
+`src/theme.zig`): the `default` theme renders the location bold yellow and
+other object names cyan italic, plus styling for the title bar, footer,
+and prompt. A theme is a `vaxis.Style` per element, so it can set any
+foreground/background colour and attribute (bold, italic, underline, ...);
+`--theme <name>` selects one (`default`, `mono` — a colourless fallback, or
+`c64` — light blue on the classic dark blue Commodore 64 screen).
 
 ### Debug commands
 
