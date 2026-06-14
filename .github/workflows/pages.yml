@@ -15,6 +15,11 @@ concurrency:
   group: pages
   cancel-in-progress: true
 
+# Run the bundled JS actions (checkout, setup-zig, upload-pages-artifact) on
+# Node 24; Node 20 is removed from the runners in September 2026.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
