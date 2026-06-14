@@ -2,6 +2,14 @@
 
 A z-machine interpreter in Zig, targeting version 3 (`.z3`) story files.
 
+## ▶ [Play it live in your browser → **swilcox.github.io/zgigye**](https://swilcox.github.io/zgigye/)
+
+No install, no download, nothing to run — the entire interpreter is compiled to
+WebAssembly and plays a story (Mini-Zork) **right in the browser**, all on the
+client. Type `open mailbox` and go. Prefer the terminal? Read on.
+
+---
+
 The name is *z-gigye* (the repo runs it together as `zgigye`): **기계** (*gigye*)
 is Korean for "machine", so it reads as "z-machine".
 
