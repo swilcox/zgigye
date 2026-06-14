@@ -55,6 +55,50 @@ pub fn build(b: *std.Build) void {
     if (b.args) |args| serve_cmd.addArgs(args);
     serve_step.dependOn(&serve_cmd.step);
 
+    // The WebAssembly frontend. The browser sandbox is a pure-computation
+    // target with no syscalls — exactly the constraint the core already
+    // meets — so we build a separate wasm-targeted copy of the core and a
+    // thin shim that exports one call per turn. ReleaseSmall keeps the .wasm
+    // lean; entry/rdynamic make it a "reactor" module (no main, exported
+    // functions callable from JS).
+    const wasm_target = b.resolveTargetQuery(.{
+        .cpu_arch = .wasm32,
+        .os_tag = .freestanding,
+    });
+    const wasm_core = b.createModule(.{
+        .root_source_file = b.path("src/root.zig"),
+        .target = wasm_target,
+        .optimize = .ReleaseSmall,
+    });
+    const wasm = b.addExecutable(.{
+        .name = "zgigye",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/wasm.zig"),
+            .target = wasm_target,
+            .optimize = .ReleaseSmall,
+            .imports = &.{
+                .{ .name = "zgigye", .module = wasm_core },
+            },
+        }),
+    });
+    wasm.entry = .disabled;
+    wasm.rdynamic = true;
+
+    const wasm_step = b.step("wasm", "Build the WebAssembly module (zig-out/bin/zgigye.wasm)");
+    wasm_step.dependOn(&b.addInstallArtifact(wasm, .{}).step);
+
+    // Stage the module, the play page, and a story together as static files,
+    // so the browser demo needs no server of ours — any static file server
+    // works:  zig build web && (cd zig-out/web && python3 -m http.server)
+    const web_dir: std.Build.InstallDir = .{ .custom = "web" };
+    const stage_wasm = b.addInstallArtifact(wasm, .{ .dest_dir = .{ .override = web_dir } });
+    const stage_page = b.addInstallFileWithDir(b.path("src/web/wasm.html"), web_dir, "index.html");
+    const stage_story = b.addInstallFileWithDir(b.path("stories/minizork.z3"), web_dir, "minizork.z3");
+    const web_step = b.step("web", "Stage the wasm browser demo under zig-out/web/");
+    web_step.dependOn(&stage_wasm.step);
+    web_step.dependOn(&stage_page.step);
+    web_step.dependOn(&stage_story.step);
+
     const mod_tests = b.addTest(.{ .root_module = mod });
     const run_mod_tests = b.addRunArtifact(mod_tests);
     const exe_tests = b.addTest(.{ .root_module = exe.root_module });

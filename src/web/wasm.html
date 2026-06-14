@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>zgigye</title>
+<title>zgigye (wasm)</title>
 <style>
   :root {
     color-scheme: dark;
@@ -71,7 +71,7 @@
 <main>
   <pre id="output"></pre>
   <form id="form"><span class="prompt">&gt;</span><input id="input"
-    autocomplete="off" autocapitalize="none" spellcheck="false" autofocus></form>
+    autocomplete="off" autocapitalize="none" spellcheck="false" autofocus disabled></form>
   <div id="settings-bar">
     <button id="gear" type="button" title="Display settings"
       aria-label="Display settings" aria-expanded="false">&#9881;</button>
@@ -89,6 +89,9 @@
   </div>
 </main>
 <script>
+  // Which story to load, served alongside this page and the .wasm module.
+  const STORY_URL = "minizork.z3";
+
   let state = null;
   const output = document.getElementById("output");
   const input = document.getElementById("input");
@@ -101,21 +104,57 @@
     input.scrollIntoView();
   }
 
-  async function call(url, body) {
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: body ? JSON.stringify(body) : null,
-    });
-    if (!res.ok) {
-      append(`[server error: ${await res.text()}]\n`, "system");
-      return null;
-    }
-    return res.json();
+  // --- WASM transport -----------------------------------------------------
+  // Replaces index.html's fetch("/turn"): the same JSON now comes straight
+  // out of the module. The call boundary only carries numbers, so strings
+  // cross as (pointer, length) into the module's linear memory. Always
+  // re-read `memory.buffer` after a call: growing the heap detaches the old
+  // ArrayBuffer.
+  let wasm = null;
+  const enc = new TextEncoder();
+  const dec = new TextDecoder();
+  const mem = () => new Uint8Array(wasm.memory.buffer);
+
+  function copyIn(bytes) {              // -> { ptr, len }; caller frees
+    const ptr = wasm.alloc(bytes.length);
+    if (!ptr) throw new Error("wasm alloc failed");
+    mem().set(bytes, ptr);
+    return { ptr, len: bytes.length };
   }
 
-  // Highlight toggles: pure CSS class switches on <body>, so flipping one
-  // restyles the whole transcript, past turns included.
+  function readResult(ptr) {            // the JSON the last call returned
+    const len = wasm.resultLen();
+    return JSON.parse(dec.decode(mem().subarray(ptr, ptr + len)));
+  }
+
+  function startGame() {
+    return readResult(wasm.start());
+  }
+
+  function advanceGame(stateB64, command) {
+    const s = copyIn(enc.encode(stateB64));
+    const i = copyIn(enc.encode(command));
+    const turn = readResult(wasm.advance(s.ptr, s.len, i.ptr, i.len));
+    wasm.dealloc(s.ptr, s.len);
+    wasm.dealloc(i.ptr, i.len);
+    return turn;
+  }
+
+  async function initWasm() {
+    // Plain instantiate (not Streaming) so it works regardless of whether
+    // the static server labels .wasm as application/wasm.
+    const bytes = await (await fetch("zgigye.wasm")).arrayBuffer();
+    const { instance } = await WebAssembly.instantiate(bytes, {});
+    wasm = instance.exports;
+
+    const story = new Uint8Array(await (await fetch(STORY_URL)).arrayBuffer());
+    const s = copyIn(story);
+    const ok = wasm.setStory(s.ptr, s.len);
+    wasm.dealloc(s.ptr, s.len);
+    if (!ok) throw new Error("setStory failed");
+  }
+
+  // --- Highlight toggles (identical to the HTTP demo) ---------------------
   const kindClass = { location: "loc", keyword: "kw" };
   for (const [id, cls] of [["opt-loc", "hl-loc"], ["opt-kw", "hl-kw"]]) {
     const box = document.getElementById(id);
@@ -149,8 +188,14 @@
   themeSel.addEventListener("change", applyTheme);
   applyTheme();
 
+  // --- Rendering (identical to the HTTP demo) -----------------------------
   function show(turn) {
     if (!turn) return;
+    if (turn.error) {
+      append(`\n[error: ${turn.error}]\n`, "system");
+      input.disabled = true;
+      return;
+    }
     // The game prints its own input prompt (usually ">") last; the input
     // row below plays that role here, so drop it from the last span.
     const spans = turn.output.slice();
@@ -177,16 +222,23 @@
     }
   }
 
-  document.getElementById("form").addEventListener("submit", async (e) => {
+  document.getElementById("form").addEventListener("submit", (e) => {
     e.preventDefault();
     if (!state || !input.value) return;
     const command = input.value;
     input.value = "";
     append(`> ${command}\n`);
-    show(await call("/turn", { state, input: command }));
+    show(advanceGame(state, command));
   });
 
-  call("/new").then(show);
+  // --- Boot ---------------------------------------------------------------
+  initWasm().then(() => {
+    input.disabled = false;
+    input.focus();
+    show(startGame());
+  }).catch((err) => {
+    append(`[failed to load: ${err.message}]\n`, "system");
+  });
 </script>
 </body>
 </html>
