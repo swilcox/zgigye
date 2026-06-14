@@ -24,7 +24,16 @@ Requires Zig 0.16.
 zig build                                # builds zig-out/bin/zgigye
 zig build run -- stories/minizork.z3     # play a story (full-screen TUI)
 zig build serve -- stories/minizork.z3   # play in a browser (demo web server)
+zig build wasm                           # builds zig-out/bin/zgigye.wasm
+zig build web                            # stages the wasm demo under zig-out/web/
 zig build test                           # unit + integration tests
+```
+
+The `web` target stages everything the browser demo needs as static files,
+so it needs no server of ours — serve `zig-out/web/` with anything:
+
+```sh
+zig build web && (cd zig-out/web && python3 -m http.server)
 ```
 
 When attached to a terminal the interpreter runs a full-screen TUI (built
@@ -60,6 +69,7 @@ testable layers:
 | `src/theme.zig` | TUI colour themes: a `vaxis.Style` per styled element (exe only) |
 | `src/main.zig` | CLI entry point; picks the frontend and wires it up |
 | `src/serve.zig` | Demo HTTP frontend, one request per turn (exe only) |
+| `src/wasm.zig` | WebAssembly frontend, one exported call per turn (exe only) |
 
 ### Pluggable frontends
 
@@ -82,9 +92,10 @@ are marked, never a word that merely appears in a room description.
 Frontends collect those marks over a turn and render them their own way;
 `src/highlight.zig` holds the span types and assembles the flat span list
 (`spansFromMarks`). Both highlights default to on: the TUI takes
-`--no-highlight-location` / `--no-highlight-keywords`, and the web page
-has two checkboxes (persisted in localStorage). Plain-text mode never
-styles anything.
+`--no-highlight-location` / `--no-highlight-keywords`, and the web pages
+(both the HTTP demo and the WebAssembly build) hide two checkboxes and a
+theme picker behind a gear icon, all persisted in localStorage. Plain-text
+mode never styles anything.
 
 In the TUI the actual colours and attributes come from the theme (see
 `src/theme.zig`): the `default` theme renders the location bold yellow and
@@ -92,7 +103,9 @@ other object names cyan italic, plus styling for the title bar, footer,
 and prompt. A theme is a `vaxis.Style` per element, so it can set any
 foreground/background colour and attribute (bold, italic, underline, ...);
 `--theme <name>` selects one (`default`, `mono` — a colourless fallback, or
-`c64` — light blue on the classic dark blue Commodore 64 screen).
+`c64` — light blue on the classic dark blue Commodore 64 screen). The web
+pages mirror the same three themes in CSS variables, chosen from the gear
+panel's theme picker.
 
 ### Debug commands
 
@@ -134,7 +147,10 @@ command and runs to the next. Each `Turn` carries the printed output,
 structured status-line data, and the next state blob (or null once the
 game ends). Where blobs are persisted is entirely the caller's business —
 `zig build serve` demonstrates the extreme: a stateless HTTP server that
-round-trips the blob through the browser as base64.
+round-trips the blob through the browser as base64. `src/wasm.zig` drives
+the same `session` API from inside the browser instead: compiled to
+`wasm32-freestanding`, it exports one call per turn and hands the JSON
+straight to the page, so the round-trip never leaves the client.
 
 ### Testing
 
