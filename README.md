@@ -1,6 +1,20 @@
-# zgigye
+# z-gigye
 
 A z-machine interpreter in Zig, targeting version 3 (`.z3`) story files.
+
+The name is *z-gigye* (the repo runs it together as `zgigye`): **기계** (*gigye*)
+is Korean for "machine", so it reads as "z-machine".
+
+![The default theme playing Mini-Zork in the TUI](docs/assets/screenshot.png)
+
+The full-screen TUI playing Mini-Zork: the current location (*West of House*)
+in bold yellow and other object names (*small mailbox*, *leaflet*) in cyan
+italic, with the title bar showing the story name, location, score, and moves.
+
+With `--theme c64` the same session takes on the classic Commodore 64 palette —
+light blue text on dark blue:
+
+![The c64 theme playing Mini-Zork in the TUI](docs/assets/screenshot_c64.png)
 
 ## Build and run
 
