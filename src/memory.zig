@@ -26,12 +26,20 @@ pub const Memory = struct {
         return std.mem.readInt(u16, self.bytes[addr..][0..2], .big);
     }
 
+    // Writes check the file bounds as well as the static mark. Header
+    // validation already guarantees `static_start <= bytes.len`, so the
+    // range check is redundant for a machine built the usual way — but
+    // `Memory` is constructible directly, and an out-of-bounds write is
+    // not a failure mode worth leaving to an invariant held elsewhere.
+
     pub fn writeByte(self: *Memory, addr: u32, value: u8) Error!void {
+        if (addr >= self.bytes.len) return Error.AddressOutOfRange;
         if (addr >= self.static_start) return Error.WriteToStaticMemory;
         self.bytes[addr] = value;
     }
 
     pub fn writeWord(self: *Memory, addr: u32, value: u16) Error!void {
+        if (addr + 1 >= self.bytes.len) return Error.AddressOutOfRange;
         if (addr + 1 >= self.static_start) return Error.WriteToStaticMemory;
         std.mem.writeInt(u16, self.bytes[addr..][0..2], value, .big);
     }
@@ -75,6 +83,17 @@ test "writes to static memory are rejected" {
     try mem.writeByte(1, 7);
     try std.testing.expectError(Error.WriteToStaticMemory, mem.writeByte(2, 7));
     try std.testing.expectError(Error.WriteToStaticMemory, mem.writeWord(1, 7));
+}
+
+test "writes past the end of memory are rejected, not out of bounds" {
+    // A story whose static mark lies past the end of the file (rejected by
+    // Header.parse, but Memory does not depend on that) must still not
+    // index outside its own bytes.
+    var bytes = [_]u8{ 0, 0, 0, 0 };
+    var mem = Memory{ .bytes = &bytes, .static_start = 0xFFFF };
+    try std.testing.expectError(Error.AddressOutOfRange, mem.writeByte(4, 7));
+    try std.testing.expectError(Error.AddressOutOfRange, mem.writeByte(1000, 7));
+    try std.testing.expectError(Error.AddressOutOfRange, mem.writeWord(3, 7));
 }
 
 test "cursor reads sequentially" {
