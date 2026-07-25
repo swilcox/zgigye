@@ -1,5 +1,7 @@
 # z-gigye
 
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 A z-machine interpreter in Zig, targeting version 3 (`.z3`) story files.
 
 ## ▶ [Play it live in your browser → **swilcox.github.io/zgigye**](https://swilcox.github.io/zgigye/)
@@ -196,3 +198,13 @@ test run; the libvaxis frontend is excluded.
   branch as failed. (Out-of-band snapshots exist; see `src/state.zig`.)
 - Versions other than 3.
 - Sound, screen splitting, and output streams beyond the main window.
+
+## License
+
+zgigye is MIT-licensed; see [LICENSE](LICENSE).
+
+It builds against libvaxis (MIT) and embeds the ET Book fonts (MIT) in the
+web frontends — see [THIRD-PARTY.md](THIRD-PARTY.md). The two bundled story
+files are *not* covered by that license and have terms of their own, set
+out in [stories/README.md](stories/README.md): `czech.z3` is freely
+distributable, while `minizork.z3` remains Infocom/Activision copyright.
