@@ -16,6 +16,8 @@ const Io = std.Io;
 const zgigye = @import("zgigye");
 const session = zgigye.session;
 
+const turn_json = zgigye.turn_json;
+
 const index_html = @embedFile("web/index.html");
 
 const max_steps_per_turn = 10_000_000;
@@ -24,19 +26,6 @@ const max_body_len = 1024 * 1024;
 const TurnRequest = struct {
     state: []const u8,
     input: []const u8,
-};
-
-const TurnResponse = struct {
-    /// The turn's text as highlight spans: kind is "plain", "location",
-    /// or "keyword". Concatenating the texts reproduces the raw output.
-    output: []const zgigye.highlight.Span,
-    status: ?Status,
-    state: ?[]const u8,
-
-    const Status = struct {
-        location: []const u8,
-        progress: zgigye.StatusLine.Progress,
-    };
 };
 
 pub fn main(init: std.process.Init) !void {
@@ -142,15 +131,8 @@ fn handleRequest(
         const parsed = std.json.parseFromSliceLeaky(TurnRequest, arena, body, .{}) catch
             return respondError(request, .bad_request, "expected JSON with \"state\" and \"input\"");
 
-        const decoder = std.base64.standard.Decoder;
-        const state = blk: {
-            const len = decoder.calcSizeForSlice(parsed.state) catch
-                return respondError(request, .bad_request, "state is not valid base64");
-            const state = try arena.alloc(u8, len);
-            decoder.decode(state, parsed.state) catch
-                return respondError(request, .bad_request, "state is not valid base64");
-            break :blk state;
-        };
+        const state = turn_json.decodeState(arena, parsed.state) catch
+            return respondError(request, .bad_request, "state is not valid base64");
 
         const turn = session.advance(arena, story, state, parsed.input, max_steps_per_turn) catch |err|
             switch (err) {
@@ -168,23 +150,9 @@ fn respondTurn(
     request: *std.http.Server.Request,
     turn: session.Turn,
 ) !void {
-    const state_b64: ?[]const u8 = if (turn.state) |blob| blk: {
-        const encoder = std.base64.standard.Encoder;
-        const buf = try arena.alloc(u8, encoder.calcSize(blob.len));
-        break :blk encoder.encode(buf, blob);
-    } else null;
-
-    // The object-name spans were recorded as the game printed; the client
-    // decides whether to show each kind.
-    const payload: TurnResponse = .{
-        .output = turn.spans,
-        .status = if (turn.status) |s| .{ .location = s.location, .progress = s.progress } else null,
-        .state = state_b64,
-    };
-
-    var json: std.Io.Writer.Allocating = .init(arena);
-    try json.writer.print("{f}", .{std.json.fmt(payload, .{})});
-    try request.respond(json.written(), .{
+    // Same bytes the wasm build hands the page directly; see turn_json.zig.
+    const json = try turn_json.allocTurn(arena, turn);
+    try request.respond(json, .{
         .extra_headers = &.{.{ .name = "content-type", .value = "application/json" }},
     });
 }
