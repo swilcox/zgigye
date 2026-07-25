@@ -1,6 +1,6 @@
 .{
     .name = .zgigye,
-    .version = "0.0.1",
+    .version = "0.1.0",
     .dependencies = .{
         .vaxis = .{
             .url = "git+https://github.com/rockorager/libvaxis#a367b89da09bfe5e1b628501940de5b4f858f5f3",
