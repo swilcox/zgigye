@@ -7,19 +7,34 @@ Notable changes to zgigye. Format follows
 While the major version is 0, the library API may change in any minor
 release.
 
-## [Unreleased]
+## [0.2.0] — 2026-07-25
+
+The interpreter itself is unchanged — no opcode, decoder, or state-format
+work landed here. What changed is what the repository ships: every file in
+it is now redistributable under a license someone can point at.
 
 ### Changed
 
 - The bundled play/demo story is now **Zork I** (release 119 / serial
-  880429) instead of Mini-Zork, so every file in the repository is
-  redistributable under a license someone can point at. The Zork I story
-  file is published by the rightsholder under MIT in
-  `historicalsource/zork1`; Mini-Zork was never licensed at all. See
-  [stories/README.md](stories/README.md). `minizork.z3` is gone from
-  `stories/` and `src/testdata/`, the golden transcript is regenerated
-  from a Zork I playthrough (`src/testdata/zork1_script.txt`,
-  `zork1_transcript.txt`), and the wasm demo now fetches `zork1.z3`.
+  880429) instead of Mini-Zork. The Zork I story file is published by the
+  rightsholder under MIT in
+  [`historicalsource/zork1`](https://github.com/historicalsource/zork1);
+  `stories/zork1.z3` is that repository's `COMPILED/zork1.z3`,
+  byte-identical (git blob `e447402828441d44375b2b067befcd0ef02b37b7`).
+  Mini-Zork was never released under any license — it circulated widely as
+  a 1988 promotional cut-down, which is "widely distributed", not
+  "permitted". See [stories/README.md](stories/README.md).
+- `minizork.z3` is removed from `stories/` and `src/testdata/`. Anyone
+  depending on it should supply their own story file; the interpreter runs
+  any v3 story, and czech.z3 remains the test suite's oracle.
+- The golden transcript is regenerated from a Zork I playthrough
+  (`src/testdata/zork1_script.txt`, `zork1_transcript.txt`), covering the
+  same ground as before: container listings, the status line, `print_obj`
+  highlighting, an unrecognised word, and the trap door.
+- The wasm demo fetches `zork1.z3`, and `zig build web` stages it.
+- Agent guidance moved from a tracked `CLAUDE.md` to a tool-neutral
+  `AGENTS.md`, which also absorbs the module map the README used to be the
+  only home for. `CLAUDE.md` is now untracked and gitignored.
 
 ### Fixed
 
@@ -88,4 +103,5 @@ driver that runs on every test.
 - Versions other than 3.
 - Sound, screen splitting, and output streams beyond the main window.
 
+[0.2.0]: https://github.com/swilcox/zgigye/releases/tag/v0.2.0
 [0.1.0]: https://github.com/swilcox/zgigye/releases/tag/v0.1.0
