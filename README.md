@@ -170,6 +170,15 @@ Every module carries unit tests. Integration tests in
 - `minizork.z3` — a scripted play session exercising `sread`,
   tokenisation, and the parser.
 
+A story file is untrusted input — it may be truncated, hand-edited, or
+hostile — and so are the state blobs the web frontends round-trip through
+the browser. Neither may crash the interpreter: every malformed input has
+to come back as an error. `src/fuzz_test.zig` holds a target for each,
+plus a seeded driver that runs both over a few thousand pseudo-random
+corruptions on every `zig build test`. Coverage-guided runs
+(`zig build test --fuzz`) await a fix to a type error in Zig 0.16.0's own
+bundled test runner, which only affects fuzz builds.
+
 Line coverage (requires `brew install kcov`):
 
 ```sh

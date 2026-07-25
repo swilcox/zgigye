@@ -30,4 +30,5 @@ test {
     _ = @import("ui.zig");
     _ = @import("text_ui.zig");
     _ = @import("integration_test.zig");
+    _ = @import("fuzz_test.zig");
 }

@@ -17,12 +17,14 @@
 - One module per spec concern; see the table in README.md. Opcode handlers live in one switch in `opcodes.zig`; `Machine.step` pre-advances the PC, so handlers only touch it for control flow.
 - Debug commands: input lines starting with `$` are intercepted in `Machine.readInput` (before tokenising) and dispatched to `debug.zig`, which inspects state read-only and writes a report through the `Ui`. They never mutate the machine or advance the turn, so every frontend (TUI, plain text, HTTP, wasm) gets them for free. `$you` finds the player by short-name heuristic (`you`/`cretin`/…).
 - Version 3 only, on purpose. Don't add v4+ branches speculatively.
+- Story files are untrusted input, like state blobs: a malformed one must come back as an error, never a panic. `Header.parse` checks every address it hands out against the file length (so `static_memory` can bound writes safely), `Instruction.decode` rejects unknown opcodes, short operand lists (`minOperands`) and branch targets outside memory, and the object table rejects numbers above 255 and bounds its sibling walks. Handlers index operands positionally, so anything that would make that unsound belongs in the decoder, alongside the existing `store`/`branch` checks — not in `opcodes.zig`.
 
 ## Testing
 
 - Oracle: `czech.z3` must report `Passed: 349, Failed: 0` (integration test asserts this). The reference implementation is `../yazm-py` (Python); compare against it when behavior is in question.
 - Integration tests embed stories from `src/testdata/` via `@embedFile` and use `TextUi` over fixed/allocating streams. `Machine.steps_remaining` is set in tests so loops fail instead of hanging.
 - Driving the TUI headlessly (expect/script): ptys default to 0×0 — set `stty rows 24 columns 80 < $spawn_out(slave,name)` — and reply `\x1b[0n` to vaxis's `\x1b[5n` query or shutdown blocks. Match single words; rendering interleaves escapes between words.
+- `fuzz_test.zig` holds the malformed-input targets (corrupt story, corrupt state blob). `zig build test --fuzz` is coverage-guided but does not compile on Zig 0.16.0 — the compiler's own `test_runner.zig:566` has a `StackTrace` type error in the fuzz-only branch — so a seeded driver runs the same targets over 2,000 pseudo-random inputs each on every `zig build test`. To search harder, raise `seeded_iterations` and change the two PRNG seeds.
 
 ## Environment
 
