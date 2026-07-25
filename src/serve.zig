@@ -18,7 +18,11 @@ const session = zgigye.session;
 
 const turn_json = zgigye.turn_json;
 
-const index_html = @embedFile("web/index.html");
+const index_html = @embedFile("web/page.html");
+const transport_js = @embedFile("web/transport_http.js");
+const font_regular = @embedFile("web/fonts/et-book-roman.woff");
+const font_italic = @embedFile("web/fonts/et-book-italic.woff");
+const font_bold = @embedFile("web/fonts/et-book-bold.woff");
 
 const max_steps_per_turn = 10_000_000;
 const max_body_len = 1024 * 1024;
@@ -26,6 +30,21 @@ const max_body_len = 1024 * 1024;
 const TurnRequest = struct {
     state: []const u8,
     input: []const u8,
+};
+
+/// Static files the page pulls in. The wasm build stages the same set as
+/// real files (see build.zig); here they ride along in the binary.
+const Asset = struct {
+    path: []const u8,
+    content_type: []const u8,
+    bytes: []const u8,
+};
+
+const assets = [_]Asset{
+    .{ .path = "/transport.js", .content_type = "text/javascript", .bytes = transport_js },
+    .{ .path = "/fonts/et-book-roman.woff", .content_type = "font/woff", .bytes = font_regular },
+    .{ .path = "/fonts/et-book-italic.woff", .content_type = "font/woff", .bytes = font_italic },
+    .{ .path = "/fonts/et-book-bold.woff", .content_type = "font/woff", .bytes = font_bold },
 };
 
 pub fn main(init: std.process.Init) !void {
@@ -109,6 +128,16 @@ fn handleRequest(
         return request.respond(index_html, .{
             .extra_headers = &.{.{ .name = "content-type", .value = "text/html; charset=utf-8" }},
         });
+    }
+
+    if (method == .GET) {
+        for (assets) |asset| {
+            if (std.mem.eql(u8, target, asset.path)) {
+                return request.respond(asset.bytes, .{
+                    .extra_headers = &.{.{ .name = "content-type", .value = asset.content_type }},
+                });
+            }
+        }
     }
 
     if (method == .POST and std.mem.eql(u8, target, "/new")) {

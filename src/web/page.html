@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>zgigye</title>
+<style>
+  :root {
+    color-scheme: dark;
+    /* Default theme — mirrors the TUI "default": dark screen, bold yellow
+       location, cyan italic keywords. The theme blocks below override these. */
+    --bg: #1c1e26; --fg: #d5d8df;
+    --header-bg: #d5d8df; --header-fg: #1c1e26; --header-border: transparent;
+    --accent: #8be08b;   /* prompt + caret */
+    --dim: #7e8294;      /* system text, gear, settings */
+    --loc-color: #e0c84d; --loc-weight: bold;
+    --kw-color: #56c8c8; --kw-style: italic;
+    --font-family: "SF Mono", Menlo, Consolas, monospace;
+  }
+  /* mono: attributes only, no highlight colour (TUI "mono"). */
+  body.theme-mono { --loc-color: initial; --kw-color: initial; }
+  /* c64: the Commodore 64 palette from theme.zig. */
+  body.theme-c64 {
+    --bg: #40318d; --fg: #7869c4;
+    --header-bg: #7869c4; --header-fg: #40318d;
+    --accent: #7869c4; --dim: #6a5cb5;
+    --loc-color: #bfce72; --kw-color: #67b6bd;
+  }
+  /* ET Book, from github.com/edwardtufte/et-book. MIT License, Copyright
+     (c) 2015 Dmitry Krasny, Bonnie Scranton, Edward Tufte. Served as three
+     files rather than inlined as data: URIs — 130 KB of base64 in the page
+     dwarfed the app, and only the tufte theme uses the family, so as
+     separate files the browser fetches them only when that theme is
+     actually selected. Both frontends serve them: routes in serve.zig,
+     staged files in build.zig. */
+  @font-face {
+    font-family: "et-book";
+    src: url("fonts/et-book-roman.woff") format("woff");
+    font-weight: normal; font-style: normal; font-display: swap;
+  }
+  @font-face {
+    font-family: "et-book";
+    src: url("fonts/et-book-italic.woff") format("woff");
+    font-weight: normal; font-style: italic; font-display: swap;
+  }
+  @font-face {
+    font-family: "et-book";
+    src: url("fonts/et-book-bold.woff") format("woff");
+    font-weight: bold; font-style: normal; font-display: swap;
+  }
+  /* tufte: Edward Tufte's restrained print aesthetic, web-only (there's no
+     TUI equivalent — a terminal can't switch to a serif face). Cream page,
+     near-black serif text, a single muted red as the one signal colour, and
+     a thin rule under the header in place of a colour-block banner. Location
+     leans on weight rather than colour, keeping the palette almost
+     monochrome the way his own work does. */
+  body.theme-tufte {
+    color-scheme: light;
+    --bg: #fffff8; --fg: #111111;
+    --header-bg: #fffff8; --header-fg: #111111; --header-border: #ccc0a8;
+    --accent: #b03a2e; --dim: #767066;
+    --loc-color: initial; --kw-color: #b03a2e;
+    --font-family: "et-book", Palatino, "Palatino Linotype", "Book Antiqua", Georgia, serif;
+  }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 16px/1.45 var(--font-family);
+  }
+  header {
+    position: sticky; top: 0; display: flex; justify-content: space-between;
+    padding: 0.3em 1rem; background: var(--header-bg); color: var(--header-fg);
+    border-bottom: 1px solid var(--header-border);
+    white-space: pre;
+  }
+  main { max-width: 42rem; margin: 0 auto; padding: 1rem 1rem 4rem; }
+  pre { white-space: pre-wrap; word-break: break-word; margin: 0; font: inherit; }
+  form { display: flex; gap: 0.5ch; margin-top: 0.2em; }
+  .prompt { color: var(--accent); }
+  input {
+    flex: 1; background: none; border: none; outline: none;
+    color: inherit; font: inherit; caret-color: var(--accent);
+  }
+  .system { color: var(--dim); font-style: italic; }
+  body.hl-loc .loc { font-weight: var(--loc-weight); color: var(--loc-color, var(--fg)); }
+  body.hl-kw .kw { font-style: var(--kw-style); color: var(--kw-color, var(--fg)); }
+  #settings-bar {
+    display: flex; flex-direction: column; align-items: flex-end;
+    gap: 0.6em; margin-top: 1.5em;
+  }
+  #gear {
+    background: none; border: none; padding: 0; cursor: pointer;
+    color: var(--dim); font-size: 1.1em; line-height: 1;
+  }
+  #gear:hover, #gear[aria-expanded="true"] { color: var(--fg); }
+  #settings {
+    display: flex; gap: 1.5ch; align-items: center; justify-content: flex-end;
+    color: var(--dim); font-size: 0.8em;
+  }
+  #settings[hidden] { display: none; }
+  #settings label { display: flex; gap: 0.5ch; align-items: center; cursor: pointer; }
+  #settings select {
+    background: var(--bg); color: var(--fg); font: inherit;
+    border: 1px solid var(--dim); border-radius: 3px; padding: 0 0.3ch;
+  }
+</style>
+</head>
+<body>
+<header><span id="location">&nbsp;</span><span id="progress"></span></header>
+<main>
+  <pre id="output"></pre>
+  <!-- Enabled once the transport reports ready; the wasm build has a module
+       and a story to fetch first, the HTTP one is ready immediately. -->
+  <form id="form"><span class="prompt">&gt;</span><input id="input"
+    autocomplete="off" autocapitalize="none" spellcheck="false" autofocus disabled></form>
+  <div id="settings-bar">
+    <button id="gear" type="button" title="Display settings"
+      aria-label="Display settings" aria-expanded="false">&#9881;</button>
+    <div id="settings" hidden>
+      <label>theme
+        <select id="opt-theme">
+          <option value="default">default</option>
+          <option value="mono">mono</option>
+          <option value="c64">c64</option>
+          <option value="tufte">tufte</option>
+        </select>
+      </label>
+      <label><input type="checkbox" id="opt-loc" checked> bold location</label>
+      <label><input type="checkbox" id="opt-kw" checked> italic keywords</label>
+    </div>
+  </div>
+</main>
+
+<!-- How turns are fetched is the only thing that differs between the two
+     frontends: an HTTP round trip, or a call into a WebAssembly module. Both
+     define the same `Transport` and return the same JSON (see turn_json.zig),
+     so everything below is shared. `zig build serve` routes this to the HTTP
+     transport; `zig build web` stages the wasm one under the same name. -->
+<script src="transport.js"></script>
+<script>
+  let state = null;
+  const output = document.getElementById("output");
+  const input = document.getElementById("input");
+
+  function append(text, cls) {
+    const span = document.createElement("span");
+    if (cls) span.className = cls;
+    span.textContent = text;
+    output.appendChild(span);
+    input.scrollIntoView();
+  }
+
+  // Highlight toggles: pure CSS class switches on <body>, so flipping one
+  // restyles the whole transcript, past turns included.
+  const kindClass = { location: "loc", keyword: "kw" };
+  for (const [id, cls] of [["opt-loc", "hl-loc"], ["opt-kw", "hl-kw"]]) {
+    const box = document.getElementById(id);
+    box.checked = localStorage.getItem(id) !== "off";
+    const apply = () => {
+      document.body.classList.toggle(cls, box.checked);
+      localStorage.setItem(id, box.checked ? "on" : "off");
+    };
+    box.addEventListener("change", apply);
+    apply();
+  }
+
+  // The toggles stay out of the way behind a gear until someone wants them.
+  const gear = document.getElementById("gear");
+  const settings = document.getElementById("settings");
+  gear.addEventListener("click", () => {
+    const opening = settings.hasAttribute("hidden");
+    settings.toggleAttribute("hidden", !opening);
+    gear.setAttribute("aria-expanded", String(opening));
+  });
+
+  // Theme picker: swaps a body class the CSS variables key off, persisted
+  // like the toggles. "default" is just the bare :root variables.
+  const themeSel = document.getElementById("opt-theme");
+  themeSel.value = localStorage.getItem("theme") || "default";
+  const applyTheme = () => {
+    document.body.classList.remove("theme-mono", "theme-c64", "theme-tufte");
+    if (themeSel.value !== "default") document.body.classList.add("theme-" + themeSel.value);
+    localStorage.setItem("theme", themeSel.value);
+  };
+  themeSel.addEventListener("change", applyTheme);
+  applyTheme();
+
+  function show(turn) {
+    if (!turn) return;
+    if (turn.error) {
+      append(`\n[error: ${turn.error}]\n`, "system");
+      input.disabled = true;
+      return;
+    }
+    // The game prints its own input prompt (usually ">") last; the input
+    // row below plays that role here, so drop it from the last span.
+    const spans = turn.output.slice();
+    if (spans.length) {
+      const last = spans[spans.length - 1];
+      const stripped = last.text.replace(/>\s*$/, "");
+      if (stripped !== last.text) {
+        spans.pop();
+        if (stripped) spans.push({ text: stripped, kind: last.kind });
+      }
+    }
+    for (const span of spans) append(span.text, kindClass[span.kind]);
+    if (turn.status) {
+      document.getElementById("location").textContent = turn.status.location;
+      const p = turn.status.progress;
+      document.getElementById("progress").textContent = p.score
+        ? `Score: ${p.score.score}   Moves: ${p.score.turns}`
+        : `${p.time.hours}:${String(p.time.minutes).padStart(2, "0")}`;
+    }
+    state = turn.state;
+    if (!state) {
+      append("\n[The game has ended. Reload the page to start again.]\n", "system");
+      input.disabled = true;
+    }
+  }
+
+  document.getElementById("form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (!state || !input.value) return;
+    const command = input.value;
+    input.value = "";
+    append(`> ${command}\n`);
+    show(await Transport.advance(state, command));
+  });
+
+  Transport.init().then(async () => {
+    input.disabled = false;
+    input.focus();
+    show(await Transport.start());
+  }).catch((err) => {
+    append(`[failed to load: ${err.message}]\n`, "system");
+  });
+</script>
+</body>
+</html>
