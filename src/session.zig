@@ -123,12 +123,12 @@ const ChannelUi = struct {
         .showStatus = showStatus,
     };
 
-    fn print(ptr: *anyopaque, text: []const u8) anyerror!void {
+    fn print(ptr: *anyopaque, text: []const u8) Ui.Error!void {
         const self: *ChannelUi = @ptrCast(@alignCast(ptr));
         try self.out.writer.writeAll(text);
     }
 
-    fn printObject(ptr: *anyopaque, text: []const u8, location: bool) anyerror!void {
+    fn printObject(ptr: *anyopaque, text: []const u8, location: bool) Ui.Error!void {
         const self: *ChannelUi = @ptrCast(@alignCast(ptr));
         const offset = self.out.written().len;
         try self.out.writer.writeAll(text);
@@ -139,7 +139,7 @@ const ChannelUi = struct {
         });
     }
 
-    fn readLine(ptr: *anyopaque, buf: []u8) anyerror![]const u8 {
+    fn readLine(ptr: *anyopaque, buf: []u8) Ui.Error![]const u8 {
         const self: *ChannelUi = @ptrCast(@alignCast(ptr));
         const line = self.input orelse return error.InputPending;
         self.input = null;
@@ -148,7 +148,7 @@ const ChannelUi = struct {
         return buf[0..len];
     }
 
-    fn showStatus(ptr: *anyopaque, status: StatusLine) anyerror!void {
+    fn showStatus(ptr: *anyopaque, status: StatusLine) Ui.Error!void {
         const self: *ChannelUi = @ptrCast(@alignCast(ptr));
         // status.location aliases the machine's scratch buffer, which is
         // overwritten by the next string decode; keep our own copy.

@@ -31,7 +31,9 @@ const dictionary = 0x400; // in static memory; empty, but well-formed
 /// Address the machine's pc points at, and where `run` patches code.
 pub const code_addr: u16 = code_start;
 
-fn syntheticStory() [story_len]u8 {
+/// Exposed so tests elsewhere can build a machine over the same story
+/// with a frontend of their own (see the suspend test in ui.zig).
+pub fn syntheticStory() [story_len]u8 {
     var story: [story_len]u8 = @splat(0);
     story[0] = 3;
     setWord(&story, 0x06, code_start); // initial pc

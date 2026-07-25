@@ -86,8 +86,11 @@ testable layers:
 
 ### Pluggable frontends
 
-`Ui` is a vtable interface with three operations: `print`, `readLine`, and
-`showStatus`. Status-line data is passed structured (location object name
+`Ui` is a vtable interface with four operations: `print`, `printObject`,
+`readLine`, and `showStatus`, each returning the explicit `Ui.Error` set
+rather than `anyerror` — so `error.InputPending`, which the whole
+suspend/resume protocol turns on, is part of the declared interface and
+checked by the compiler. Status-line data is passed structured (location object name
 plus score/turns or time), so each frontend renders it natively. Two
 implementations exist: `TextUi` (plain text over generic `std.Io` streams,
 used for piped play and all tests) and `TuiUi` (full-screen libvaxis).
