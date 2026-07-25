@@ -43,28 +43,26 @@ test "czech conformance suite passes" {
     }
 }
 
-test "minizork accepts commands and quits" {
-    const output = try runStory(
-        std.testing.allocator,
-        minizork_story,
-        "open mailbox\nread leaflet\nquit\ny\n",
-    );
-    defer std.testing.allocator.free(output);
+/// A scripted playthrough and the exact text it must produce. Checking the
+/// whole transcript rather than probing for a few phrases means a
+/// behavioural change shows up as a readable diff, and covers everything
+/// the run touches incidentally: the status line's score and move counts,
+/// object names printed via print_obj ("painting: Taken."), container
+/// listings, parser errors for unknown words, and the trap-door mechanic.
+///
+/// The run is deterministic — the RNG is seeded identically each time — so
+/// a difference is a real change, not flake. To regenerate after an
+/// intentional change, check the diff is what you meant and then:
+///
+///   zig build && ./zig-out/bin/zgigye --plain stories/minizork.z3 \
+///     < src/testdata/minizork_script.txt > src/testdata/minizork_transcript.txt
+const minizork_script = @embedFile("testdata/minizork_script.txt");
+const minizork_transcript = @embedFile("testdata/minizork_transcript.txt");
 
-    const checks = [_][]const u8{
-        "MINI-ZORK I", // banner
-        "West of House", // initial room description
-        "Opening the small mailbox reveals a leaflet.",
-        "WELCOME TO ZORK", // leaflet text
-        "Your score is 0 (of 350 points), in 2 moves", // quit confirms turns counted
-    };
-    for (checks) |expected| {
-        if (std.mem.indexOf(u8, output, expected) == null) {
-            std.debug.print("--- minizork output ---\n{s}\n", .{output});
-            std.debug.print("missing: {s}\n", .{expected});
-            return error.UnexpectedOutput;
-        }
-    }
+test "minizork plays the scripted session exactly" {
+    const output = try runStory(std.testing.allocator, minizork_story, minizork_script);
+    defer std.testing.allocator.free(output);
+    try std.testing.expectEqualStrings(minizork_transcript, output);
 }
 
 test "object names are highlighted only where the game prints them" {

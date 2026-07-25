@@ -1,0 +1,24 @@
+open mailbox
+read leaflet
+drop leaflet
+inventory
+north
+east
+open window
+enter window
+west
+take lamp
+turn on lamp
+inventory
+move rug
+open trap door
+down
+look
+score
+xyzzy
+frobozz the grue
+up
+east
+take all
+quit
+y
