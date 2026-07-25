@@ -1,5 +1,8 @@
 # z-gigye
 
+[![CI](https://github.com/swilcox/zgigye/actions/workflows/pages.yml/badge.svg)](https://github.com/swilcox/zgigye/actions/workflows/pages.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 A z-machine interpreter in Zig, targeting version 3 (`.z3`) story files.
 
 ## ▶ [Play it live in your browser → **swilcox.github.io/zgigye**](https://swilcox.github.io/zgigye/)
@@ -170,6 +173,15 @@ Every module carries unit tests. Integration tests in
 - `minizork.z3` — a scripted play session exercising `sread`,
   tokenisation, and the parser.
 
+A story file is untrusted input — it may be truncated, hand-edited, or
+hostile — and so are the state blobs the web frontends round-trip through
+the browser. Neither may crash the interpreter: every malformed input has
+to come back as an error. `src/fuzz_test.zig` holds a target for each,
+plus a seeded driver that runs both over a few thousand pseudo-random
+corruptions on every `zig build test`. Coverage-guided runs
+(`zig build test --fuzz`) await a fix to a type error in Zig 0.16.0's own
+bundled test runner, which only affects fuzz builds.
+
 Line coverage (requires `brew install kcov`):
 
 ```sh
@@ -181,9 +193,26 @@ The totals are also machine-readable in
 `zig-out/coverage/*/coverage.json`. Coverage measures the core library's
 test run; the libvaxis frontend is excluded.
 
+### Continuous integration
+
+`.github/workflows/ci.yml` runs the formatter check, the test suite, and a
+build of every frontend on Linux and macOS. It runs on pull requests, and
+the Pages workflow calls it before deploying, so a push that breaks the
+interpreter never reaches the live demo.
+
 ## Not yet implemented
 
 - In-band save/restore (Quetzal) — the save/restore opcodes currently
   branch as failed. (Out-of-band snapshots exist; see `src/state.zig`.)
 - Versions other than 3.
 - Sound, screen splitting, and output streams beyond the main window.
+
+## License
+
+zgigye is MIT-licensed; see [LICENSE](LICENSE).
+
+It builds against libvaxis (MIT) and embeds the ET Book fonts (MIT) in the
+web frontends — see [THIRD-PARTY.md](THIRD-PARTY.md). The two bundled story
+files are *not* covered by that license and have terms of their own, set
+out in [stories/README.md](stories/README.md): `czech.z3` is freely
+distributable, while `minizork.z3` remains Infocom/Activision copyright.

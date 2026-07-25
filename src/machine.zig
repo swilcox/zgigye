@@ -24,6 +24,7 @@ pub const Error = error{
     StackUnderflow,
     NoSuchLocal,
     NoSuchGlobal,
+    NoSuchVariable,
     InvalidRoutine,
     ReturnFromMainRoutine,
     DivisionByZero,

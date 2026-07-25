@@ -69,8 +69,11 @@ fn decodeInner(
             switch (mode) {
                 .abbrev => {
                     if (!allow_abbrev) return Error.NestedAbbreviation;
-                    const entry = abbreviations + 2 * (32 * (abbrev_bank - 1) + z);
-                    const string_addr = @as(u32, try mem.readWord(@intCast(entry))) * 2;
+                    // Widened to u32: a table address near the top of memory
+                    // would otherwise overflow the u16 sum rather than fail
+                    // the bounds check in readWord.
+                    const entry = @as(u32, abbreviations) + 2 * (32 * (@as(u32, abbrev_bank) - 1) + z);
+                    const string_addr = @as(u32, try mem.readWord(entry)) * 2;
                     try decodeInner(mem, abbreviations, string_addr, out, false);
                     mode = .normal;
                 },
