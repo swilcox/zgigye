@@ -398,3 +398,172 @@ pub const Machine = struct {
         return state.load(self, data);
     }
 };
+
+// --- Tests ---
+//
+// The call/return and variable machinery underneath the opcodes. czech
+// exercises all of it, but only in combination; these separate the pieces
+// so a failure names one.
+
+const testing = std.testing;
+const test_machine = @import("test_machine.zig");
+const TestMachine = test_machine.TestMachine;
+
+test "variables map to the stack, locals, and globals" {
+    // 0 is the stack, 1-15 the current routine's locals, 16-255 globals
+    // (spec 4.2.2).
+    const tm = try TestMachine.create(testing.allocator, "");
+    defer tm.destroy();
+    const m = tm.machine;
+
+    try m.writeVariable(0, 11);
+    try testing.expectEqual(@as(u16, 11), try m.readVariable(0));
+    try testing.expectEqual(@as(usize, 0), m.stack.items.len); // reading popped it
+
+    try m.writeVariable(16, 22);
+    try testing.expectEqual(@as(u16, 22), try m.readGlobal(0));
+    try testing.expectEqual(@as(u16, 22), try m.readVariable(16));
+
+    try m.writeVariable(255, 33);
+    try testing.expectEqual(@as(u16, 33), try m.readGlobal(239));
+
+    // The main routine has no locals, so any local is out of range.
+    try testing.expectError(Error.NoSuchLocal, m.readVariable(1));
+    try testing.expectError(Error.NoSuchLocal, m.writeVariable(15, 0));
+}
+
+test "a routine cannot pop past its own frame" {
+    // Each frame records where the caller's stack ended; popping below that
+    // would consume values belonging to the caller.
+    const tm = try TestMachine.create(testing.allocator, "");
+    defer tm.destroy();
+    const m = tm.machine;
+
+    try m.push(1);
+    try m.push(2);
+    try m.callRoutine(routineAt(tm, 0, &.{}), &.{}, null);
+    try testing.expectEqual(@as(usize, 2), m.frames.items.len);
+
+    // The callee's stack starts empty even though the caller left values.
+    try testing.expectError(Error.StackUnderflow, m.pop());
+    try testing.expectError(Error.StackUnderflow, m.peek());
+
+    // Its own pushes are fine, and returning restores the caller's stack.
+    try m.push(3);
+    try testing.expectEqual(@as(u16, 3), try m.pop());
+    try m.returnFromRoutine(0);
+    try testing.expectEqual(@as(u16, 2), try m.pop());
+}
+
+test "returning from the main routine is an error" {
+    // There is no frame below the first one to return into.
+    const tm = try TestMachine.create(testing.allocator, "");
+    defer tm.destroy();
+    try testing.expectError(Error.ReturnFromMainRoutine, tm.machine.returnFromRoutine(0));
+}
+
+test "locals start from the routine header and arguments overwrite them" {
+    // A v3 routine header carries a default value per local; the arguments
+    // replace the first few, and the rest keep their defaults (spec 6.4.4).
+    const tm = try TestMachine.create(testing.allocator, "");
+    defer tm.destroy();
+    const m = tm.machine;
+
+    const packed_addr = routineAt(tm, 3, &.{ 0x11, 0x22, 0x33 });
+    try m.callRoutine(packed_addr, &.{0xAA}, null);
+
+    try testing.expectEqual(@as(u16, 0xAA), try m.readVariable(1)); // argument
+    try testing.expectEqual(@as(u16, 0x22), try m.readVariable(2)); // default
+    try testing.expectEqual(@as(u16, 0x33), try m.readVariable(3)); // default
+    try testing.expectEqual(@as(u8, 1), m.frames.items[m.frames.items.len - 1].arg_count);
+
+    // More arguments than locals: the extras are dropped, not written past
+    // the end of the frame.
+    try m.returnFromRoutine(0);
+    try m.callRoutine(packed_addr, &.{ 1, 2, 3, 4, 5 }, null);
+    try testing.expectEqual(@as(u16, 3), try m.readVariable(3));
+    try testing.expectError(Error.NoSuchLocal, m.readVariable(4));
+}
+
+test "a routine with too many locals is rejected" {
+    const tm = try TestMachine.create(testing.allocator, "");
+    defer tm.destroy();
+    // Write a routine header claiming 16 locals; the format allows 15.
+    try tm.machine.memory.writeByte(test_machine.code_addr, max_locals + 1);
+    try testing.expectError(
+        Error.InvalidRoutine,
+        tm.machine.callRoutine(test_machine.code_addr / 2, &.{}, null),
+    );
+}
+
+test "branch offsets zero and one return from the routine" {
+    // Offsets 0 and 1 are not displacements: they mean "return false" and
+    // "return true" (spec 4.7).
+    const tm = try TestMachine.create(testing.allocator, "");
+    defer tm.destroy();
+    const m = tm.machine;
+
+    for ([_]struct { target: instruction.Branch.Target, expected: u16 }{
+        .{ .target = .return_false, .expected = 0 },
+        .{ .target = .return_true, .expected = 1 },
+    }) |case| {
+        try m.callRoutine(routineAt(tm, 0, &.{}), &.{}, 16); // store into global 0
+        try m.takeBranch(.{ .on_true = true, .target = case.target }, true);
+        try testing.expectEqual(@as(usize, 1), m.frames.items.len);
+        try testing.expectEqual(case.expected, try m.readGlobal(0));
+    }
+
+    // A branch whose condition does not match its sense does nothing.
+    const pc = m.pc;
+    try m.takeBranch(.{ .on_true = true, .target = .{ .addr = 0x123 } }, false);
+    try testing.expectEqual(pc, m.pc);
+}
+
+test "restart resets dynamic memory but keeps the Flags 2 bits" {
+    // The transcript and fixed-pitch bits are the player's settings, not
+    // the game's state, and survive a restart (spec 6.1.3).
+    const tm = try TestMachine.create(testing.allocator, "");
+    defer tm.destroy();
+    const m = tm.machine;
+
+    try m.memory.writeWord(0x10, 0x0003); // both preserved bits set
+    try m.writeGlobal(0, 0xBEEF);
+    try m.push(1);
+    try m.callRoutine(routineAt(tm, 0, &.{}), &.{}, null);
+
+    try m.restart();
+
+    try testing.expectEqual(@as(u16, 0x0003), try m.memory.readWord(0x10));
+    try testing.expectEqual(@as(u16, 0), try m.readGlobal(0)); // reset
+    try testing.expectEqual(@as(usize, 0), m.stack.items.len);
+    try testing.expectEqual(@as(usize, 1), m.frames.items.len);
+    try testing.expectEqual(@as(u32, m.header.initial_pc), m.pc);
+}
+
+test "the checksum is taken over the pristine story" {
+    // verify compares against the header's checksum, so it has to read the
+    // story as loaded — not memory the game has since written to.
+    const tm = try TestMachine.create(testing.allocator, "");
+    defer tm.destroy();
+    const m = tm.machine;
+
+    const before = m.checksum();
+    try m.writeGlobal(0, 0xFFFF);
+    try testing.expectEqual(before, m.checksum());
+
+    // And it really is the sum of everything after the header.
+    var expected: u16 = 0;
+    for (m.original[0x40..@min(m.header.file_length, m.original.len)]) |b| expected +%= b;
+    try testing.expectEqual(expected, before);
+}
+
+/// Write a routine header into the code region and return its packed
+/// address. `defaults` supplies one initial value per local.
+fn routineAt(tm: *TestMachine, locals: u8, defaults: []const u16) u16 {
+    const addr = test_machine.code_addr;
+    tm.machine.memory.writeByte(addr, locals) catch unreachable;
+    for (defaults, 0..) |value, i| {
+        tm.machine.memory.writeWord(addr + 1 + @as(u32, @intCast(i)) * 2, value) catch unreachable;
+    }
+    return addr / 2; // routine addresses are packed
+}

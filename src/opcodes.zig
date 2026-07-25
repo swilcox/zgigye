@@ -249,63 +249,270 @@ fn random(m: *Machine, range: u16) u16 {
 
 // --- Tests ---
 //
-// Coverage of the instruction set as a whole comes from the czech
-// conformance suite (see integration_test.zig); what belongs here are the
-// cases a conforming story never produces, which czech therefore cannot
-// reach.
+// The czech conformance suite (see integration_test.zig) is the broad check
+// on the instruction set, but it reports only a pass count: a regression
+// there says nothing about which opcode broke. These pin the semantics that
+// are easy to get subtly wrong — signedness, the indirect-stack rule,
+// address wraparound — one opcode at a time, plus the malformed encodings a
+// conforming story never produces and czech therefore cannot reach.
 
-const TextUi = @import("text_ui.zig").TextUi;
-const czech_story = @embedFile("testdata/czech.z3");
+const testing = std.testing;
+const test_machine = @import("test_machine.zig");
+const TestMachine = test_machine.TestMachine;
+const Asm = test_machine.Asm;
 
-/// A machine over a real story, with one hand-written instruction patched
-/// into dynamic memory and the pc pointing at it, so `step` executes just
-/// that instruction.
-///
-/// The frontend lives in the fixture rather than in the helper that builds
-/// it: `Ui` holds a pointer to the `TextUi`, so it has to outlive the
-/// machine, and a local in a factory function would not.
-const Fixture = struct {
-    sink: [64]u8 = undefined,
-    out: std.Io.Writer.Discarding = undefined,
-    in: std.Io.Reader = undefined,
-    text_ui: TextUi = undefined,
+/// Variable 16 is global 0; the tests store results there and read them back.
+const result_var: u8 = 16;
 
-    fn machineExecuting(self: *Fixture, gpa: std.mem.Allocator, code: []const u8) !*Machine {
-        self.out = .init(&self.sink);
-        self.in = std.Io.Reader.fixed("");
-        self.text_ui = .{ .out = &self.out.writer, .in = &self.in };
+fn expectResult(tm: *TestMachine, expected: u16, code: []const u8) !void {
+    try tm.step(code);
+    try testing.expectEqual(expected, try tm.machine.readGlobal(0));
+}
 
-        const m = try Machine.create(gpa, czech_story, self.text_ui.ui());
-        errdefer m.destroy();
+/// A signed value as a large-constant operand.
+fn signedOperand(value: i16) test_machine.Operand {
+    return .{ .large = @bitCast(value) };
+}
 
-        // Somewhere in dynamic memory, past the header; nothing else runs.
-        const addr: u16 = 0x40;
-        for (code, 0..) |byte, i| try m.memory.writeByte(addr + @as(u32, @intCast(i)), byte);
-        m.pc = addr;
-        return m;
+test "division and remainder truncate toward zero" {
+    // @divTrunc and @rem, not floor division: the quotient rounds toward
+    // zero and the remainder takes the sign of the dividend (spec 15).
+    const tm = try TestMachine.create(testing.allocator, "");
+    defer tm.destroy();
+
+    const cases = [_]struct { a: i16, b: i16, div: i16, mod: i16 }{
+        .{ .a = -11, .b = 2, .div = -5, .mod = -1 },
+        .{ .a = 11, .b = -2, .div = -5, .mod = 1 },
+        .{ .a = -11, .b = -2, .div = 5, .mod = -1 },
+        .{ .a = 11, .b = 2, .div = 5, .mod = 1 },
+    };
+    for (cases) |case| {
+        var d: Asm = .{};
+        _ = d.varOp(.div, &.{ signedOperand(case.a), signedOperand(case.b) }).store(result_var);
+        try expectResult(tm, @bitCast(case.div), d.code());
+
+        var m: Asm = .{};
+        _ = m.varOp(.mod, &.{ signedOperand(case.a), signedOperand(case.b) }).store(result_var);
+        try expectResult(tm, @bitCast(case.mod), m.code());
     }
-};
+}
+
+test "division by zero is an error, not a trap" {
+    const tm = try TestMachine.create(testing.allocator, "");
+    defer tm.destroy();
+
+    var d: Asm = .{};
+    _ = d.varOp(.div, &.{ .{ .small = 1 }, .{ .small = 0 } }).store(result_var);
+    try testing.expectError(Error.DivisionByZero, tm.step(d.code()));
+
+    var m: Asm = .{};
+    _ = m.varOp(.mod, &.{ .{ .small = 1 }, .{ .small = 0 } }).store(result_var);
+    try testing.expectError(Error.DivisionByZero, tm.step(m.code()));
+}
+
+test "je compares against every operand it is given" {
+    // je is the one 2OP that takes a variable number of operands: in
+    // variable form it accepts two to four, and branches if the first
+    // equals any of the rest (spec 15).
+    const tm = try TestMachine.create(testing.allocator, "");
+    defer tm.destroy();
+
+    // Four operands, the match in last place.
+    var hit: Asm = .{};
+    _ = hit.varOp(.je, &.{
+        .{ .small = 7 },
+        .{ .small = 1 },
+        .{ .small = 2 },
+        .{ .small = 7 },
+    }).branch(true, 10);
+    try tm.step(hit.code());
+    // Six bytes of instruction and two of branch data end at 0x308, and a
+    // taken branch lands at that address plus the offset, less two.
+    try testing.expectEqual(@as(u32, test_machine.code_addr + 8 + 10 - 2), tm.machine.pc);
+
+    // Three operands, no match: execution falls through to the next
+    // instruction instead.
+    var miss: Asm = .{};
+    _ = miss.varOp(.je, &.{
+        .{ .small = 7 },
+        .{ .small = 1 },
+        .{ .small = 2 },
+    }).branch(true, 10);
+    try tm.step(miss.code());
+    try testing.expectEqual(@as(u32, test_machine.code_addr + 7), tm.machine.pc);
+}
+
+test "inc_chk and dec_chk compare as signed" {
+    const tm = try TestMachine.create(testing.allocator, "");
+    defer tm.destroy();
+
+    // 0x7FFF + 1 wraps to 0x8000, which is -32768 signed but 32768
+    // unsigned. Signed, it is not greater than 0, so the branch is not
+    // taken; an unsigned comparison would take it.
+    try tm.machine.writeGlobal(0, 0x7FFF);
+    var inc: Asm = .{};
+    _ = inc.varOp(.inc_chk, &.{ .{ .small = result_var }, .{ .small = 0 } }).branch(true, 10);
+    try tm.step(inc.code());
+    try testing.expectEqual(@as(u32, test_machine.code_addr + 6), tm.machine.pc); // fell through
+    try testing.expectEqual(@as(u16, 0x8000), try tm.machine.readGlobal(0));
+
+    // 0 - 1 wraps to 0xFFFF, which is -1 signed and so less than 0; an
+    // unsigned comparison would not branch.
+    try tm.machine.writeGlobal(0, 0);
+    var dec: Asm = .{};
+    _ = dec.varOp(.dec_chk, &.{ .{ .small = result_var }, .{ .small = 0 } }).branch(true, 10);
+    try tm.step(dec.code());
+    try testing.expectEqual(@as(u32, test_machine.code_addr + 6 + 10 - 2), tm.machine.pc);
+    try testing.expectEqual(@as(u16, 0xFFFF), try tm.machine.readGlobal(0));
+}
+
+test "indirect variable access works on the stack in place" {
+    // Reading or writing variable 0 by number, rather than as an operand,
+    // peeks and replaces instead of popping and pushing (spec 6.3.4).
+    const tm = try TestMachine.create(testing.allocator, "");
+    defer tm.destroy();
+
+    try tm.machine.push(42);
+    const depth = tm.machine.stack.items.len;
+
+    // load 0 -> reads the top without consuming it.
+    var load: Asm = .{};
+    _ = load.oneOp(.load, .{ .small = 0 }).store(result_var);
+    try expectResult(tm, 42, load.code());
+    try testing.expectEqual(depth, tm.machine.stack.items.len);
+    try testing.expectEqual(@as(u16, 42), try tm.machine.peek());
+
+    // store 0, 99 -> replaces the top rather than pushing onto it.
+    var store_top: Asm = .{};
+    _ = store_top.varOp(.store, &.{ .{ .small = 0 }, .{ .small = 99 } });
+    try tm.step(store_top.code());
+    try testing.expectEqual(depth, tm.machine.stack.items.len);
+    try testing.expectEqual(@as(u16, 99), try tm.machine.peek());
+}
+
+test "get_prop_len of address zero is zero" {
+    // Spec 12.4.1: get_prop_len 0 must return 0, and in particular must not
+    // read the byte before address 0 looking for a size.
+    const tm = try TestMachine.create(testing.allocator, "");
+    defer tm.destroy();
+
+    var a: Asm = .{};
+    _ = a.oneOp(.get_prop_len, .{ .small = 0 }).store(result_var);
+    try expectResult(tm, 0, a.code());
+}
+
+test "array addresses wrap within sixteen bits" {
+    // loadw/storew compute base + index * size with wrapping arithmetic,
+    // so an address past 0xFFFF comes back round to the bottom of memory.
+    const tm = try TestMachine.create(testing.allocator, "");
+    defer tm.destroy();
+
+    // 0xFFFF + 1 * 1 wraps to 0, where the version byte lives.
+    var load: Asm = .{};
+    _ = load.varOp(.loadb, &.{ .{ .large = 0xFFFF }, .{ .small = 1 } }).store(result_var);
+    try expectResult(tm, 3, load.code());
+
+    // 0xFFFE + 1 * 2 wraps to 0 as well.
+    var store_wrapped: Asm = .{};
+    _ = store_wrapped.varOp(.storew, &.{
+        .{ .large = 0xFFFE },
+        .{ .small = 1 },
+        .{ .large = 0xBEEF },
+    });
+    try tm.step(store_wrapped.code());
+    try testing.expectEqual(@as(u16, 0xBEEF), try tm.machine.memory.readWord(0));
+}
+
+test "random is reproducible from a seed and reseeds on a negative range" {
+    // A negative range reseeds predictably with its absolute value and
+    // returns 0 (spec 15), which is what makes scripted runs repeatable.
+    const tm = try TestMachine.create(testing.allocator, "");
+    defer tm.destroy();
+
+    var seed: Asm = .{};
+    _ = seed.varOp(.random, &.{signedOperand(-5)}).store(result_var);
+    var draw: Asm = .{};
+    _ = draw.varOp(.random, &.{.{ .large = 1000 }}).store(result_var);
+
+    try expectResult(tm, 0, seed.code()); // reseeding yields 0
+    try tm.step(draw.code());
+    const first = try tm.machine.readGlobal(0);
+
+    try tm.step(seed.code());
+    try tm.step(draw.code());
+    try testing.expectEqual(first, try tm.machine.readGlobal(0));
+
+    // And the result is in range.
+    try testing.expect(first >= 1 and first <= 1000);
+}
+
+test "print_num prints signed values" {
+    const tm = try TestMachine.create(testing.allocator, "");
+    defer tm.destroy();
+
+    var a: Asm = .{};
+    _ = a.varOp(.print_num, &.{signedOperand(-1)});
+    try tm.step(a.code());
+    try testing.expectEqualStrings("-1", tm.written());
+}
+
+test "calling packed address zero returns false without a frame" {
+    // Spec 6.4.3: call 0 does nothing, stores false, and must not push a
+    // call frame — a routine that never ran cannot be returned from.
+    const tm = try TestMachine.create(testing.allocator, "");
+    defer tm.destroy();
+
+    try tm.machine.writeGlobal(0, 0xFFFF);
+    const frames = tm.machine.frames.items.len;
+
+    var a: Asm = .{};
+    _ = a.varOp(.call, &.{.{ .small = 0 }}).store(result_var);
+    try expectResult(tm, 0, a.code());
+    try testing.expectEqual(frames, tm.machine.frames.items.len);
+}
+
+test "bitwise operations" {
+    const tm = try TestMachine.create(testing.allocator, "");
+    defer tm.destroy();
+
+    var and_op: Asm = .{};
+    _ = and_op.varOp(.@"and", &.{ .{ .large = 0xFF00 }, .{ .large = 0x0F0F } }).store(result_var);
+    try expectResult(tm, 0x0F00, and_op.code());
+
+    var or_op: Asm = .{};
+    _ = or_op.varOp(.@"or", &.{ .{ .large = 0xFF00 }, .{ .large = 0x0F0F } }).store(result_var);
+    try expectResult(tm, 0xFF0F, or_op.code());
+
+    var not_op: Asm = .{};
+    _ = not_op.oneOp(.not, .{ .large = 0xFF00 }).store(result_var);
+    try expectResult(tm, 0x00FF, not_op.code());
+}
+
+// --- Malformed encodings ---
 
 test "a variable number wider than a byte is rejected" {
     // Variable numbers are bytes, but the operand carrying one can be a
     // large constant, so a story can name variable 0x1234. Was: the cast to
-    // u8 panicked. Encoded here as `dec` (1OP:134) with a large constant.
-    var fixture: Fixture = .{};
-    const m = try fixture.machineExecuting(std.testing.allocator, &.{ 0x86, 0x12, 0x34 });
-    defer m.destroy();
-    try std.testing.expectError(Error.NoSuchVariable, m.step());
+    // u8 panicked.
+    const tm = try TestMachine.create(testing.allocator, "");
+    defer tm.destroy();
+
+    var a: Asm = .{};
+    _ = a.oneOp(.dec, .{ .large = 0x1234 });
+    try testing.expectError(Error.NoSuchVariable, tm.step(a.code()));
 }
 
 test "a jump landing outside memory is rejected" {
-    // jump (1OP:140) takes a signed displacement, so it can address before
-    // 0 or past the end of the story. Was: the cast to u32 panicked.
-    var back_fixture: Fixture = .{};
-    const backwards = try back_fixture.machineExecuting(std.testing.allocator, &.{ 0x8C, 0x80, 0x00 });
-    defer backwards.destroy();
-    try std.testing.expectError(error.AddressOutOfRange, backwards.step());
+    // jump takes a signed displacement, so it can address before 0 or past
+    // the end of the story. Was: the cast to u32 panicked.
+    const tm = try TestMachine.create(testing.allocator, "");
+    defer tm.destroy();
 
-    var forward_fixture: Fixture = .{};
-    const forwards = try forward_fixture.machineExecuting(std.testing.allocator, &.{ 0x8C, 0x7F, 0xFF });
-    defer forwards.destroy();
-    try std.testing.expectError(error.AddressOutOfRange, forwards.step());
+    var backwards: Asm = .{};
+    _ = backwards.oneOp(.jump, signedOperand(-32768));
+    try testing.expectError(error.AddressOutOfRange, tm.step(backwards.code()));
+
+    var forwards: Asm = .{};
+    _ = forwards.oneOp(.jump, .{ .large = 0x7FFF });
+    try testing.expectError(error.AddressOutOfRange, tm.step(forwards.code()));
 }
