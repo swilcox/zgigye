@@ -24,6 +24,7 @@
 - Oracle: `czech.z3` must report `Passed: 349, Failed: 0` (integration test asserts this). The reference implementation is `../yazm-py` (Python); compare against it when behavior is in question.
 - Integration tests embed stories from `src/testdata/` via `@embedFile` and use `TextUi` over fixed/allocating streams. `Machine.steps_remaining` is set in tests so loops fail instead of hanging.
 - Driving the TUI headlessly (expect/script): ptys default to 0×0 — set `stty rows 24 columns 80 < $spawn_out(slave,name)` — and reply `\x1b[0n` to vaxis's `\x1b[5n` query or shutdown blocks. Match single words; rendering interleaves escapes between words.
+- CI (`.github/workflows/ci.yml`) runs `zig fmt --check`, `zig build test`, and a build of every frontend on Linux and macOS. It triggers on pull requests and via `workflow_call`; `pages.yml` calls it and depends on it, so pushes to main are tested through the deploy gate rather than by a second direct run. Adding a build target means adding it there too.
 - `fuzz_test.zig` holds the malformed-input targets (corrupt story, corrupt state blob). `zig build test --fuzz` is coverage-guided but does not compile on Zig 0.16.0 — the compiler's own `test_runner.zig:566` has a `StackTrace` type error in the fuzz-only branch — so a seeded driver runs the same targets over 2,000 pseudo-random inputs each on every `zig build test`. To search harder, raise `seeded_iterations` and change the two PRNG seeds.
 
 ## Environment

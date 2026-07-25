@@ -21,7 +21,13 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  # Gate the deploy on a green suite: a push that breaks the interpreter
+  # must not reach the live demo. Reuses ci.yml rather than repeating it.
+  test:
+    uses: ./.github/workflows/ci.yml
+
   build:
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5

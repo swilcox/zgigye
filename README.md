@@ -1,5 +1,6 @@
 # z-gigye
 
+[![CI](https://github.com/swilcox/zgigye/actions/workflows/pages.yml/badge.svg)](https://github.com/swilcox/zgigye/actions/workflows/pages.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 A z-machine interpreter in Zig, targeting version 3 (`.z3`) story files.
@@ -191,6 +192,13 @@ open zig-out/coverage/index.html   # per-file, per-line HTML report
 The totals are also machine-readable in
 `zig-out/coverage/*/coverage.json`. Coverage measures the core library's
 test run; the libvaxis frontend is excluded.
+
+### Continuous integration
+
+`.github/workflows/ci.yml` runs the formatter check, the test suite, and a
+build of every frontend on Linux and macOS. It runs on pull requests, and
+the Pages workflow calls it before deploying, so a push that breaks the
+interpreter never reaches the live demo.
 
 ## Not yet implemented
 

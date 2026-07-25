@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  pull_request:
+  workflow_dispatch:
+  # Callable from other workflows, so the Pages deploy can gate on a green
+  # suite without duplicating any of it. Pushes to main run this way, via
+  # pages.yml — triggering on `push` here as well would mean two runs of
+  # the same commit racing for the concurrency group below.
+  workflow_call:
+
+permissions:
+  contents: read
+
+# One run per ref per calling workflow; a new push supersedes an in-flight
+# one. `github.workflow` is the caller's name when this is reused, which
+# keeps a direct run and a called run in separate groups.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Run the bundled JS actions (checkout, setup-zig) on Node 24; Node 20 is
+# removed from the runners in September 2026.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: mlugg/setup-zig@v2
+        with:
+          # Keep in step with minimum_zig_version in build.zig.zon.
+          version: 0.16.0
+
+      # Formatting is platform-independent, so check it once.
+      - name: Check formatting
+        if: matrix.os == 'ubuntu-latest'
+        run: zig fmt --check build.zig src/*.zig
+
+      # Unit tests, the czech conformance suite, and the seeded runs of the
+      # malformed-input fuzz targets (see src/fuzz_test.zig).
+      - name: Run tests
+        run: zig build test
+
+      # The library is covered above; these are the frontends, which have
+      # their own targets and are not built by `zig build test`.
+      - name: Build the interpreter and web server
+        run: zig build
+      - name: Build the WebAssembly module
+        run: zig build wasm
+      - name: Stage the browser demo
+        run: zig build web
