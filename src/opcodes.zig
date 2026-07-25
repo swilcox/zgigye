@@ -9,6 +9,7 @@ const Machine = machine_mod.Machine;
 const Error = machine_mod.Error;
 const instruction = @import("instruction.zig");
 const Instruction = instruction.Instruction;
+const memory = @import("memory.zig");
 
 pub fn execute(m: *Machine, instr: *const Instruction) !void {
     // Resolve operands in order; variable operands may pop the stack.
@@ -39,11 +40,11 @@ pub fn execute(m: *Machine, instr: *const Instruction) !void {
         .jz => try m.takeBranch(instr.branch.?, args[0] == 0),
         .jin => try m.takeBranch(instr.branch.?, try m.objects.parent(args[0]) == args[1]),
         .@"test" => try m.takeBranch(instr.branch.?, args[0] & args[1] == args[1]),
-        .jump => m.pc = offsetPc(m.pc, args[0]),
+        .jump => m.pc = try offsetPc(m, args[0]),
 
         // --- Variables ---
-        .load => try store(m, instr, try m.readVariableIndirect(@intCast(args[0]))),
-        .store => try m.writeVariableIndirect(@intCast(args[0]), args[1]),
+        .load => try store(m, instr, try m.readVariableIndirect(try variableNumber(args[0]))),
+        .store => try m.writeVariableIndirect(try variableNumber(args[0]), args[1]),
         .inc => _ = try addToVariable(m, args[0], 1),
         .dec => _ = try addToVariable(m, args[0], -1),
         .inc_chk => {
@@ -55,7 +56,7 @@ pub fn execute(m: *Machine, instr: *const Instruction) !void {
             try m.takeBranch(instr.branch.?, value < signed(args[1]));
         },
         .push => try m.push(args[0]),
-        .pull => try m.writeVariableIndirect(@intCast(args[0]), try m.pop()),
+        .pull => try m.writeVariableIndirect(try variableNumber(args[0]), try m.pop()),
         .pop => _ = try m.pop(),
 
         // --- Memory ---
@@ -184,14 +185,29 @@ fn arrayAddr(base: u16, index: u16, element_size: u16) u16 {
     return base +% index *% element_size;
 }
 
-fn offsetPc(pc: u32, offset: u16) u32 {
-    return @intCast(@as(i64, pc) + signed(offset) - 2);
+/// jump: a signed displacement from the instruction after this one. It can
+/// point before address 0 or past the end of the story, so the result is
+/// range-checked rather than cast.
+fn offsetPc(m: *Machine, offset: u16) !u32 {
+    const target = @as(i64, m.pc) + signed(offset) - 2;
+    if (target < 0 or target >= m.memory.bytes.len) return memory.Error.AddressOutOfRange;
+    return @intCast(target);
+}
+
+/// Operands that name a variable (load, store, inc, dec, pull) carry a
+/// variable number, which is a byte: 0 is the stack, 1-15 are locals and
+/// 16-255 globals (spec 4.2.2). Nothing stops a story encoding one as a
+/// large constant, but a wider value names no variable that exists.
+fn variableNumber(value: u16) Error!u8 {
+    if (value > std.math.maxInt(u8)) return Error.NoSuchVariable;
+    return @intCast(value);
 }
 
 /// inc/dec/inc_chk/dec_chk: signed adjustment of a variable, indirect access.
 fn addToVariable(m: *Machine, variable: u16, delta: i16) !i16 {
-    const value = signed(try m.readVariableIndirect(@intCast(variable))) +% delta;
-    try m.writeVariableIndirect(@intCast(variable), unsigned(value));
+    const number = try variableNumber(variable);
+    const value = signed(try m.readVariableIndirect(number)) +% delta;
+    try m.writeVariableIndirect(number, unsigned(value));
     return value;
 }
 
@@ -229,4 +245,67 @@ fn random(m: *Machine, range: u16) u16 {
         return 0;
     }
     return m.rng.random().intRangeAtMost(u16, 1, range);
+}
+
+// --- Tests ---
+//
+// Coverage of the instruction set as a whole comes from the czech
+// conformance suite (see integration_test.zig); what belongs here are the
+// cases a conforming story never produces, which czech therefore cannot
+// reach.
+
+const TextUi = @import("text_ui.zig").TextUi;
+const czech_story = @embedFile("testdata/czech.z3");
+
+/// A machine over a real story, with one hand-written instruction patched
+/// into dynamic memory and the pc pointing at it, so `step` executes just
+/// that instruction.
+///
+/// The frontend lives in the fixture rather than in the helper that builds
+/// it: `Ui` holds a pointer to the `TextUi`, so it has to outlive the
+/// machine, and a local in a factory function would not.
+const Fixture = struct {
+    sink: [64]u8 = undefined,
+    out: std.Io.Writer.Discarding = undefined,
+    in: std.Io.Reader = undefined,
+    text_ui: TextUi = undefined,
+
+    fn machineExecuting(self: *Fixture, gpa: std.mem.Allocator, code: []const u8) !*Machine {
+        self.out = .init(&self.sink);
+        self.in = std.Io.Reader.fixed("");
+        self.text_ui = .{ .out = &self.out.writer, .in = &self.in };
+
+        const m = try Machine.create(gpa, czech_story, self.text_ui.ui());
+        errdefer m.destroy();
+
+        // Somewhere in dynamic memory, past the header; nothing else runs.
+        const addr: u16 = 0x40;
+        for (code, 0..) |byte, i| try m.memory.writeByte(addr + @as(u32, @intCast(i)), byte);
+        m.pc = addr;
+        return m;
+    }
+};
+
+test "a variable number wider than a byte is rejected" {
+    // Variable numbers are bytes, but the operand carrying one can be a
+    // large constant, so a story can name variable 0x1234. Was: the cast to
+    // u8 panicked. Encoded here as `dec` (1OP:134) with a large constant.
+    var fixture: Fixture = .{};
+    const m = try fixture.machineExecuting(std.testing.allocator, &.{ 0x86, 0x12, 0x34 });
+    defer m.destroy();
+    try std.testing.expectError(Error.NoSuchVariable, m.step());
+}
+
+test "a jump landing outside memory is rejected" {
+    // jump (1OP:140) takes a signed displacement, so it can address before
+    // 0 or past the end of the story. Was: the cast to u32 panicked.
+    var back_fixture: Fixture = .{};
+    const backwards = try back_fixture.machineExecuting(std.testing.allocator, &.{ 0x8C, 0x80, 0x00 });
+    defer backwards.destroy();
+    try std.testing.expectError(error.AddressOutOfRange, backwards.step());
+
+    var forward_fixture: Fixture = .{};
+    const forwards = try forward_fixture.machineExecuting(std.testing.allocator, &.{ 0x8C, 0x7F, 0xFF });
+    defer forwards.destroy();
+    try std.testing.expectError(error.AddressOutOfRange, forwards.step());
 }

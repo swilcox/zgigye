@@ -8,7 +8,7 @@ const memory = @import("memory.zig");
 const zscii = @import("zscii.zig");
 const Memory = memory.Memory;
 
-pub const Error = error{UnknownOpcode} || memory.Error || zscii.Error;
+pub const Error = error{ UnknownOpcode, BadOperandCount } || memory.Error || zscii.Error;
 
 /// Opcodes are numbered by operand-count class, matching the conventional
 /// decimal numbering: 2OP are 1-31, 1OP 128-143, 0OP 176-191, VAR 224-255.
@@ -114,6 +114,48 @@ pub const Opcode = enum(u8) {
     pub fn hasText(self: Opcode) bool {
         return self == .print or self == .print_ret;
     }
+
+    /// How many operands the opcode requires (v3 set).
+    ///
+    /// An operand-count class does not pin this down: the variable form
+    /// carries a type byte that can omit any number of operands, so a story
+    /// can encode `push` with none at all. The handlers in opcodes.zig index
+    /// their operands positionally, exactly as the spec describes each
+    /// opcode, so the shortfall has to be caught here — the same way the
+    /// decoder already establishes whether a store byte or branch data is
+    /// present. Opcodes that take a variable number (`je`, `call`) give
+    /// their minimum.
+    pub fn minOperands(self: Opcode) u8 {
+        return switch (self) {
+            // 2OP. `je` is the one that genuinely varies: 2 to 4 (spec 15).
+            .je, .jl, .jg, .dec_chk, .inc_chk, .jin, .@"test" => 2,
+            .@"or", .@"and", .test_attr, .set_attr, .clear_attr, .store => 2,
+            .insert_obj, .loadw, .loadb, .get_prop, .get_prop_addr => 2,
+            .get_next_prop, .add, .sub, .mul, .div, .mod => 2,
+
+            // 1OP
+            .jz, .get_sibling, .get_child, .get_parent, .get_prop_len => 1,
+            .inc, .dec, .print_addr, .remove_obj, .print_obj => 1,
+            .ret, .jump, .print_paddr, .load, .not => 1,
+
+            // 0OP
+            .rtrue, .rfalse, .print, .print_ret, .nop => 0,
+            .save, .restore, .restart, .ret_popped, .pop => 0,
+            .quit, .new_line, .show_status, .verify => 0,
+
+            // VAR
+            .call => 1, // routine address, then 0-3 arguments
+            .storew, .storeb, .put_prop => 3,
+            .sread => 2,
+            .print_char, .print_num, .random, .push, .pull => 1,
+            // Accepted and ignored (no screen or stream support), so their
+            // operands are never read; the spec's minimum still applies.
+            .split_window, .set_window, .input_stream => 1,
+            .output_stream, .sound_effect => 1,
+
+            _ => 0, // unreachable: decode rejects unknown opcodes first
+        };
+    }
 };
 
 pub const OperandType = enum(u2) {
@@ -206,6 +248,8 @@ pub const Instruction = struct {
             instr.operand_count += 1;
         }
 
+        if (instr.operand_count < opcode.minOperands()) return Error.BadOperandCount;
+
         if (opcode.stores()) instr.store = try cur.byte();
         if (opcode.branches()) instr.branch = try decodeBranch(&cur);
 
@@ -239,12 +283,15 @@ pub const Instruction = struct {
             const raw = @as(u16, b & 0x3F) << 8 | try cur.byte();
             offset = @intCast(if (raw >= 0x2000) @as(i32, raw) - 0x4000 else raw);
         }
-        const target: Branch.Target = switch (offset) {
-            0 => .return_false,
-            1 => .return_true,
-            else => .{ .addr = @intCast(@as(i64, cur.pos) + offset - 2) },
-        };
-        return .{ .on_true = on_true, .target = target };
+        // Offsets 0 and 1 mean "return false/true" rather than a displacement
+        // (spec 4.7). Any other offset is relative and signed, so a branch
+        // early in memory can compute a target before address 0; it has to
+        // be rejected rather than wrapped into a plausible-looking address.
+        if (offset == 0) return .{ .on_true = on_true, .target = .return_false };
+        if (offset == 1) return .{ .on_true = on_true, .target = .return_true };
+        const target = @as(i64, cur.pos) + offset - 2;
+        if (target < 0 or target >= cur.mem.bytes.len) return Error.AddressOutOfRange;
+        return .{ .on_true = on_true, .target = .{ .addr = @intCast(target) } };
     }
 
     fn isKnown(opcode: Opcode) bool {
@@ -256,10 +303,13 @@ pub const Instruction = struct {
     }
 };
 
+/// Decode a hand-written instruction at address 0. The memory is larger
+/// than the instruction on purpose: branch offsets are relative, so a
+/// target has to land inside memory for the branch to decode at all.
 fn decodeBytes(bytes: []const u8) Error!Instruction {
-    var buf: [64]u8 = undefined;
+    var buf: [64]u8 = @splat(0);
     @memcpy(buf[0..bytes.len], bytes);
-    const mem = Memory{ .bytes = buf[0..bytes.len], .static_start = 0 };
+    const mem = Memory{ .bytes = &buf, .static_start = 0 };
     return Instruction.decode(&mem, 0);
 }
 
@@ -318,4 +368,26 @@ test "decode two-byte branch with negative offset" {
 test "unknown opcode is rejected" {
     // 0OP number 190 (extended marker, not valid in v3)
     try std.testing.expectError(Error.UnknownOpcode, decodeBytes(&.{0xBE}));
+}
+
+test "too few operands is rejected" {
+    // The variable form's type byte can omit every operand, so a story can
+    // encode opcodes with fewer than they take. The handlers index their
+    // operands positionally, so the decoder has to catch the shortfall.
+    // push (VAR 232) with an all-omitted type byte: no operands at all.
+    try std.testing.expectError(Error.BadOperandCount, decodeBytes(&.{ 0xE8, 0xFF }));
+    // storew (VAR 225) takes three; give it one small constant.
+    try std.testing.expectError(Error.BadOperandCount, decodeBytes(&.{ 0xE1, 0x7F, 0x01 }));
+    // je (2OP 1) in variable form takes at least two; give it one.
+    try std.testing.expectError(Error.BadOperandCount, decodeBytes(&.{ 0xC1, 0x7F, 0x01 }));
+}
+
+test "a branch target outside memory is rejected" {
+    // Branch offsets are signed and relative, so one early in memory can
+    // address before 0. Was: the cast to u32 panicked.
+    const enc: u16 = @as(u14, @bitCast(@as(i14, -64)));
+    try std.testing.expectError(
+        Error.AddressOutOfRange,
+        decodeBytes(&.{ 0x90, 0x00, @intCast(enc >> 8), @intCast(enc & 0xFF) }),
+    );
 }
