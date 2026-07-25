@@ -8,21 +8,23 @@ A z-machine interpreter in Zig, targeting version 3 (`.z3`) story files.
 ## ▶ [Play it live in your browser → **swilcox.github.io/zgigye**](https://swilcox.github.io/zgigye/)
 
 No install, no download, nothing to run — the entire interpreter is compiled to
-WebAssembly and plays a story (Mini-Zork) **right in the browser**, all on the
+WebAssembly and plays a story (Zork I) **right in the browser**, all on the
 client. Type `open mailbox` and go. Prefer the terminal? Read on.
 
 ---
 
-![The default theme playing Mini-Zork in the TUI](docs/assets/screenshot.png)
+![The default theme playing Zork I in the TUI](docs/assets/screenshot.png)
 
-The full-screen TUI playing Mini-Zork: the current location (*West of House*)
+The full-screen TUI playing Zork I: the current location (*West of House*)
 in bold yellow and other object names (*small mailbox*, *leaflet*) in cyan
 italic, with the title bar showing the story name, location, score, and moves.
+`--theme` also offers `mono` and `c64`.
 
-With `--theme c64` the same session takes on the classic Commodore 64 palette —
-light blue text on dark blue:
+The same interpreter, same story, compiled to WebAssembly and running in the
+browser under the web-only `tufte` theme — cream page, ET Book, and a single
+muted red for the object names:
 
-![The c64 theme playing Mini-Zork in the TUI](docs/assets/screenshot_c64.png)
+![The tufte theme playing Zork I in the browser](docs/assets/screenshot_web.png)
 
 ## The name
 
@@ -38,8 +40,8 @@ Requires Zig 0.16.
 
 ```sh
 zig build                                # builds zig-out/bin/zgigye
-zig build run -- stories/minizork.z3     # play a story (full-screen TUI)
-zig build serve -- stories/minizork.z3   # play in a browser (demo web server)
+zig build run -- stories/zork1.z3        # play a story (full-screen TUI)
+zig build serve -- stories/zork1.z3      # play in a browser (demo web server)
 zig build wasm                           # builds zig-out/bin/zgigye.wasm
 zig build web                            # stages the wasm demo under zig-out/web/
 zig build test                           # unit + integration tests
@@ -188,7 +190,7 @@ Every module carries unit tests. Integration tests in
 
 - `czech.z3` — the Comprehensive Z-machine Emulation CHecker; runs with no
   input and must report `Passed: 349, Failed: 0`.
-- `minizork.z3` — a scripted play session, checked against a golden
+- `zork1.z3` — a scripted play session, checked against a golden
   transcript in `src/testdata/`, so a behavioural change shows up as a
   readable diff rather than a pass count.
 
@@ -245,6 +247,9 @@ zgigye is MIT-licensed; see [LICENSE](LICENSE).
 
 It builds against libvaxis (MIT) and embeds the ET Book fonts (MIT) in the
 web frontends — see [THIRD-PARTY.md](THIRD-PARTY.md). The two bundled story
-files are *not* covered by that license and have terms of their own, set
-out in [stories/README.md](stories/README.md): `czech.z3` is freely
-distributable, while `minizork.z3` remains Infocom/Activision copyright.
+files are separate works with terms of their own, set out in
+[stories/README.md](stories/README.md); both are free to redistribute.
+`czech.z3` is freely distributable by its authors, and `zork1.z3` is the
+compiled story file from
+[`historicalsource/zork1`](https://github.com/historicalsource/zork1),
+which the rightsholder published under an MIT license.

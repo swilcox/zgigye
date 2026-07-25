@@ -7,6 +7,27 @@ Notable changes to zgigye. Format follows
 While the major version is 0, the library API may change in any minor
 release.
 
+## [Unreleased]
+
+### Changed
+
+- The bundled play/demo story is now **Zork I** (release 119 / serial
+  880429) instead of Mini-Zork, so every file in the repository is
+  redistributable under a license someone can point at. The Zork I story
+  file is published by the rightsholder under MIT in
+  `historicalsource/zork1`; Mini-Zork was never licensed at all. See
+  [stories/README.md](stories/README.md). `minizork.z3` is gone from
+  `stories/` and `src/testdata/`, the golden transcript is regenerated
+  from a Zork I playthrough (`src/testdata/zork1_script.txt`,
+  `zork1_transcript.txt`), and the wasm demo now fetches `zork1.z3`.
+
+### Fixed
+
+- `zig build serve`: a POST to an unrouted path with no body headers (a
+  bare `curl -X POST`) crashed the server on an assert inside std.http's
+  `discardBody`. The 404 path now settles the request body first, as the
+  routed handlers already did.
+
 ## [0.1.0] — 2026-07-25
 
 First tagged release. Everything before this point was untagged

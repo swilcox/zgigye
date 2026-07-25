@@ -101,7 +101,7 @@ pub fn build(b: *std.Build) void {
     const staged = [_]struct { source: []const u8, dest: []const u8 }{
         .{ .source = "src/web/page.html", .dest = "index.html" },
         .{ .source = "src/web/transport_wasm.js", .dest = "transport.js" },
-        .{ .source = "stories/minizork.z3", .dest = "minizork.z3" },
+        .{ .source = "stories/zork1.z3", .dest = "zork1.z3" },
         .{ .source = "src/web/fonts/et-book-roman.woff", .dest = "fonts/et-book-roman.woff" },
         .{ .source = "src/web/fonts/et-book-italic.woff", .dest = "fonts/et-book-italic.woff" },
         .{ .source = "src/web/fonts/et-book-bold.woff", .dest = "fonts/et-book-bold.woff" },

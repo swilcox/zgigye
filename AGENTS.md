@@ -14,10 +14,10 @@ Requires Zig 0.16.
   from the repo root; skips `tui_ui.zig`/`main.zig`, which need the build
   graph for vaxis.
 - `zig fmt --check build.zig src/*.zig` — CI runs this; keep it clean.
-- `zig build run -- stories/minizork.z3` — play. TUI on a terminal, plain
+- `zig build run -- stories/zork1.z3` — play. TUI on a terminal, plain
   text when piped or given `--plain`. Also `--theme <default|mono|c64>`,
   `--no-highlight-location`, `--no-highlight-keywords`.
-- `zig build serve -- stories/minizork.z3` — HTTP demo on port 8080
+- `zig build serve -- stories/zork1.z3` — HTTP demo on port 8080
   (`--port N`).
 - `zig build wasm` / `zig build web` — the module, and the browser demo
   staged under `zig-out/web/` for any static file server.
@@ -107,11 +107,11 @@ everything except `tui_ui.zig`, `theme.zig`, `main.zig`, `serve.zig` and
   into a real story lands in whatever table is there (czech's abbreviations
   start at 0x46). Use its `Asm` builder; hand-written bytes belong in
   `instruction.zig`, where the encoding is the subject.
-- The minizork golden transcript (`testdata/minizork_transcript.txt`, from
-  `minizork_script.txt`) is compared byte-for-byte and the run is
+- The Zork I golden transcript (`testdata/zork1_transcript.txt`, from
+  `zork1_script.txt`) is compared byte-for-byte and the run is
   deterministic. After an intentional change, check the diff, then
   regenerate:
-  `zig build && ./zig-out/bin/zgigye --plain stories/minizork.z3 < src/testdata/minizork_script.txt > src/testdata/minizork_transcript.txt`
+  `zig build && ./zig-out/bin/zgigye --plain stories/zork1.z3 < src/testdata/zork1_script.txt > src/testdata/zork1_transcript.txt`
 - `fuzz_test.zig` holds the malformed-input targets. `zig build test
   --fuzz` is coverage-guided but does not compile on Zig 0.16.0 — the
   compiler's own `test_runner.zig:566` has a `StackTrace` type error in its
