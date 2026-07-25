@@ -18,6 +18,13 @@ const object_size = 9;
 const attr_bytes = 4;
 const default_count = 31;
 
+/// Version 3 stores parent/sibling/child as single bytes, so 255 is the
+/// highest object number the format can express (spec 12.3.1). Numbers
+/// beyond it cannot come from the object tree itself, only from an opcode
+/// operand, and indexing that far past the table would silently read and
+/// write whatever tables happen to follow it.
+pub const max_objects = 255;
+
 const parent_offset = attr_bytes; // +4
 const sibling_offset = attr_bytes + 1; // +5
 const child_offset = attr_bytes + 2; // +6
@@ -36,7 +43,7 @@ pub const ObjectTable = struct {
     base: u16,
 
     fn objectAddr(self: ObjectTable, obj: u16) Error!u32 {
-        if (obj == 0) return Error.InvalidObject;
+        if (obj == 0 or obj > max_objects) return Error.InvalidObject;
         return self.base + default_count * 2 + (@as(u32, obj) - 1) * object_size;
     }
 
@@ -79,9 +86,17 @@ pub const ObjectTable = struct {
         if (try self.child(old_parent) == obj) {
             try self.setChild(old_parent, younger);
         } else {
-            // Find the sibling that points at obj.
+            // Find the sibling that points at obj. A corrupt chain can
+            // cycle, or run off its end into object 0 (whose sibling is 0
+            // by definition, so the walk would never terminate); no honest
+            // chain is longer than the object table, so cap it there.
             var prev = try self.child(old_parent);
-            while (try self.sibling(prev) != obj) prev = try self.sibling(prev);
+            var steps: u16 = 0;
+            while (try self.sibling(prev) != obj) {
+                prev = try self.sibling(prev);
+                steps += 1;
+                if (prev == 0 or steps > max_objects) return Error.InvalidObject;
+            }
             try self.setSibling(prev, younger);
         }
         try self.setParent(obj, 0);
