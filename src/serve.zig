@@ -171,6 +171,10 @@ fn handleRequest(
         return respondTurn(arena, request, turn);
     }
 
+    // Unrouted request. A POST/PUT/PATCH that got this far never touched
+    // its body, so settle it first: responding straight from `received_head`
+    // with no body headers asserts inside std.http's discardBody.
+    try drainBody(request);
     return respondError(request, .not_found, "not found");
 }
 

@@ -1,7 +1,7 @@
 //! Whole-machine tests against real story files.
 //!
 //! czech.z3 is a z-machine conformance suite that runs without input and
-//! reports a pass/fail summary; minizork exercises the parser and sread.
+//! reports a pass/fail summary; Zork I exercises the parser and sread.
 
 const std = @import("std");
 const Machine = @import("machine.zig").Machine;
@@ -9,7 +9,7 @@ const TextUi = @import("text_ui.zig").TextUi;
 const session = @import("session.zig");
 
 const czech_story = @embedFile("testdata/czech.z3");
-const minizork_story = @embedFile("testdata/minizork.z3");
+const zork1_story = @embedFile("testdata/zork1.z3");
 
 /// Run a story with scripted input, returning everything it printed.
 fn runStory(gpa: std.mem.Allocator, story: []const u8, input: []const u8) ![]u8 {
@@ -54,21 +54,21 @@ test "czech conformance suite passes" {
 /// a difference is a real change, not flake. To regenerate after an
 /// intentional change, check the diff is what you meant and then:
 ///
-///   zig build && ./zig-out/bin/zgigye --plain stories/minizork.z3 \
-///     < src/testdata/minizork_script.txt > src/testdata/minizork_transcript.txt
-const minizork_script = @embedFile("testdata/minizork_script.txt");
-const minizork_transcript = @embedFile("testdata/minizork_transcript.txt");
+///   zig build && ./zig-out/bin/zgigye --plain stories/zork1.z3 \
+///     < src/testdata/zork1_script.txt > src/testdata/zork1_transcript.txt
+const zork1_script = @embedFile("testdata/zork1_script.txt");
+const zork1_transcript = @embedFile("testdata/zork1_transcript.txt");
 
-test "minizork plays the scripted session exactly" {
-    const output = try runStory(std.testing.allocator, minizork_story, minizork_script);
+test "zork1 plays the scripted session exactly" {
+    const output = try runStory(std.testing.allocator, zork1_story, zork1_script);
     defer std.testing.allocator.free(output);
-    try std.testing.expectEqualStrings(minizork_transcript, output);
+    try std.testing.expectEqualStrings(zork1_transcript, output);
 }
 
 test "object names are highlighted only where the game prints them" {
     const gpa = std.testing.allocator;
 
-    var turn = try session.start(gpa, minizork_story, 10_000_000);
+    var turn = try session.start(gpa, zork1_story, 10_000_000);
     defer turn.deinit(gpa);
 
     // The room title is printed via print_obj, so it is a location span.
@@ -99,7 +99,7 @@ test "session suspend/resume is invisible to the game" {
     const max_steps = 10_000_000;
 
     // The same playthrough, straight through one machine...
-    const direct = try runStory(gpa, minizork_story, "open mailbox\nread leaflet\nquit\ny\n");
+    const direct = try runStory(gpa, zork1_story, "open mailbox\nread leaflet\nquit\ny\n");
     defer gpa.free(direct);
 
     // ...and as one suspended session per command, each turn restored
@@ -107,14 +107,14 @@ test "session suspend/resume is invisible to the game" {
     var combined: std.Io.Writer.Allocating = .init(gpa);
     defer combined.deinit();
 
-    var turn = try session.start(gpa, minizork_story, max_steps);
+    var turn = try session.start(gpa, zork1_story, max_steps);
     defer turn.deinit(gpa);
     try combined.writer.writeAll(turn.output);
 
     const commands = [_][]const u8{ "open mailbox", "read leaflet", "quit", "y" };
     for (commands) |command| {
         const blob = turn.state orelse return error.GameEndedEarly;
-        const next = try session.advance(gpa, minizork_story, blob, command, max_steps);
+        const next = try session.advance(gpa, zork1_story, blob, command, max_steps);
         turn.deinit(gpa);
         turn = next;
         try combined.writer.writeAll(turn.output);
@@ -130,14 +130,14 @@ test "a debug command in a session turn reports state and re-prompts" {
     const gpa = std.testing.allocator;
     const max_steps = 10_000_000;
 
-    var turn = try session.start(gpa, minizork_story, max_steps);
+    var turn = try session.start(gpa, zork1_story, max_steps);
     defer turn.deinit(gpa);
 
     // A '$' command is answered without advancing the game: the report
     // comes back as output and the game is still awaiting input (state is
     // non-null), so the next command lands on the same turn.
     const blob = turn.state orelse return error.GameEndedEarly;
-    var next = try session.advance(gpa, minizork_story, blob, "$room", max_steps);
+    var next = try session.advance(gpa, zork1_story, blob, "$room", max_steps);
     defer next.deinit(gpa);
 
     if (std.mem.indexOf(u8, next.output, "West of House") == null) {
@@ -237,7 +237,7 @@ test "loadState rejects malformed blobs" {
     defer out2.deinit();
     var in2 = std.Io.Reader.fixed("");
     var ui2 = TextUi{ .out = &out2.writer, .in = &in2 };
-    const other = try Machine.create(gpa, minizork_story, ui2.ui());
+    const other = try Machine.create(gpa, zork1_story, ui2.ui());
     defer other.destroy();
     try std.testing.expectError(error.InvalidState, other.loadState(blob));
 }

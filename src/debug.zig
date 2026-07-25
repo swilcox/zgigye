@@ -351,7 +351,7 @@ fn objectName(m: *Machine, obj: u16, buf: []u8) !?[]const u8 {
 // --- Tests ---
 
 const TextUi = @import("text_ui.zig").TextUi;
-const minizork_story = @embedFile("testdata/minizork.z3");
+const zork1_story = @embedFile("testdata/zork1.z3");
 
 /// Build a machine and run it to the first input prompt, so the object
 /// tree and the location global (0) are populated. Returns the machine and
@@ -359,7 +359,7 @@ const minizork_story = @embedFile("testdata/minizork.z3");
 fn machineAtPrompt(gpa: std.mem.Allocator, sink: *std.Io.Writer.Allocating) !*Machine {
     var in = std.Io.Reader.fixed("");
     var ui = TextUi{ .out = &sink.writer, .in = &in };
-    const m = try Machine.create(gpa, minizork_story, ui.ui());
+    const m = try Machine.create(gpa, zork1_story, ui.ui());
     m.steps_remaining = 10_000_000;
     // Runs until it asks for input; the empty reader then ends the stream.
     m.run() catch |err| switch (err) {
@@ -501,5 +501,5 @@ test "header reports story metadata" {
     defer out.deinit();
     _ = try dispatch(m, &out.writer, "$header");
     try expectContains(out.written(), "version:       3");
-    try expectContains(out.written(), "871124"); // serial, shown in the banner too
+    try expectContains(out.written(), "880429"); // serial, shown in the banner too
 }

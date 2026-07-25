@@ -85,12 +85,12 @@ pub fn decodeState(gpa: Allocator, base64: []const u8) error{ InvalidState, OutO
 // --- Tests ---
 
 const testing = std.testing;
-const minizork_story = @embedFile("testdata/minizork.z3");
+const zork1_story = @embedFile("testdata/zork1.z3");
 const max_steps = 10_000_000;
 
 test "a turn renders as the documented shape" {
     const gpa = testing.allocator;
-    var turn = try session.start(gpa, minizork_story, max_steps);
+    var turn = try session.start(gpa, zork1_story, max_steps);
     defer turn.deinit(gpa);
 
     const json = try allocTurn(gpa, turn);
@@ -133,12 +133,12 @@ test "a turn renders as the documented shape" {
 
 test "a finished game reports a null state" {
     const gpa = testing.allocator;
-    var turn = try session.start(gpa, minizork_story, max_steps);
+    var turn = try session.start(gpa, zork1_story, max_steps);
     defer turn.deinit(gpa);
 
     for ([_][]const u8{ "quit", "y" }) |command| {
         const blob = turn.state orelse break;
-        const next = try session.advance(gpa, minizork_story, blob, command, max_steps);
+        const next = try session.advance(gpa, zork1_story, blob, command, max_steps);
         turn.deinit(gpa);
         turn = next;
     }

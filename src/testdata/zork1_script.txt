@@ -16,8 +16,8 @@ down
 look
 score
 xyzzy
-frobozz the grue
-up
+quux the grue
+south
 east
 take all
 quit

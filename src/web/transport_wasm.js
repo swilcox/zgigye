@@ -12,7 +12,7 @@
 
 const Transport = (() => {
   // Served alongside this page and the .wasm module.
-  const STORY_URL = "minizork.z3";
+  const STORY_URL = "zork1.z3";
 
   let wasm = null;
   const enc = new TextEncoder();
