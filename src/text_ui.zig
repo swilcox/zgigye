@@ -23,26 +23,33 @@ pub const TextUi = struct {
         .showStatus = showStatus,
     };
 
-    fn print(ptr: *anyopaque, text: []const u8) anyerror!void {
+    fn print(ptr: *anyopaque, text: []const u8) Ui.Error!void {
         const self: *TextUi = @ptrCast(@alignCast(ptr));
         try self.out.writeAll(text);
     }
 
-    fn printObject(ptr: *anyopaque, text: []const u8, _: bool) anyerror!void {
+    fn printObject(ptr: *anyopaque, text: []const u8, _: bool) Ui.Error!void {
         // Plain text never styles: an object name prints like any other text.
         return print(ptr, text);
     }
 
-    fn readLine(ptr: *anyopaque, buf: []u8) anyerror![]const u8 {
+    fn readLine(ptr: *anyopaque, buf: []u8) Ui.Error![]const u8 {
         const self: *TextUi = @ptrCast(@alignCast(ptr));
         try self.out.flush();
-        const line = try self.in.takeDelimiter('\n') orelse return error.EndOfStream;
+        // A line longer than the reader's buffer is reported as
+        // StreamTooLong, which is not something the machine can act on any
+        // differently from any other failed read. (It was previously
+        // erased into anyerror and reached no handler at all.)
+        const line = self.in.takeDelimiter('\n') catch |err| switch (err) {
+            error.ReadFailed => return error.ReadFailed,
+            error.StreamTooLong => return error.ReadFailed,
+        } orelse return error.EndOfStream;
         const len = @min(line.len, buf.len);
         @memcpy(buf[0..len], line[0..len]);
         return buf[0..len];
     }
 
-    fn showStatus(ptr: *anyopaque, status: StatusLine) anyerror!void {
+    fn showStatus(ptr: *anyopaque, status: StatusLine) Ui.Error!void {
         _ = ptr;
         _ = status;
     }

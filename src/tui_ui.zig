@@ -150,16 +150,35 @@ pub const TuiUi = struct {
         .showStatus = showStatus,
     };
 
-    fn print(ptr: *anyopaque, text: []const u8) anyerror!void {
+    /// vaxis, the tty and the event loop each have their own error sets,
+    /// and none of the distinctions survive contact with the machine: every
+    /// one of them ends the turn. Fold them onto `Ui.Error` at the vtable
+    /// boundary, which is what lets the interface name what it can fail
+    /// with (see ui.zig) instead of erasing it to `anyerror`.
+    fn uiError(err: anyerror) Ui.Error {
+        return switch (err) {
+            error.OutOfMemory => error.OutOfMemory,
+            error.Interrupted => error.Interrupted,
+            error.EndOfStream => error.EndOfStream,
+            // Everything left is the terminal failing to read or draw.
+            else => error.WriteFailed,
+        };
+    }
+
+    fn print(ptr: *anyopaque, text: []const u8) Ui.Error!void {
         const self: *TuiUi = @ptrCast(@alignCast(ptr));
-        try self.appendTranscript(text);
+        self.appendTranscript(text) catch |err| return uiError(err);
     }
 
     /// An object name (from print_obj): append it and record a highlight
     /// mark over those bytes, unless that kind is disabled. Plain output
     /// (`print`) never marks, so echoed commands and prose stay plain.
-    fn printObject(ptr: *anyopaque, text: []const u8, location: bool) anyerror!void {
+    fn printObject(ptr: *anyopaque, text: []const u8, location: bool) Ui.Error!void {
         const self: *TuiUi = @ptrCast(@alignCast(ptr));
+        self.printObjectInner(text, location) catch |err| return uiError(err);
+    }
+
+    fn printObjectInner(self: *TuiUi, text: []const u8, location: bool) !void {
         const start = self.transcript.items.len;
         try self.appendTranscript(text);
         const enabled = if (location) self.options.highlight_location else self.options.highlight_keywords;
@@ -170,8 +189,12 @@ pub const TuiUi = struct {
         });
     }
 
-    fn readLine(ptr: *anyopaque, buf: []u8) anyerror![]const u8 {
+    fn readLine(ptr: *anyopaque, buf: []u8) Ui.Error![]const u8 {
         const self: *TuiUi = @ptrCast(@alignCast(ptr));
+        return self.readLineInner(buf) catch |err| uiError(err);
+    }
+
+    fn readLineInner(self: *TuiUi, buf: []u8) ![]const u8 {
         self.stripPrompt();
         try self.render();
         while (true) {
@@ -193,7 +216,7 @@ pub const TuiUi = struct {
         }
     }
 
-    fn showStatus(ptr: *anyopaque, status: StatusLine) anyerror!void {
+    fn showStatus(ptr: *anyopaque, status: StatusLine) Ui.Error!void {
         const self: *TuiUi = @ptrCast(@alignCast(ptr));
         var writer = std.Io.Writer.fixed(&self.status_text);
         switch (status.progress) {
