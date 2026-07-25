@@ -170,8 +170,16 @@ Every module carries unit tests. Integration tests in
 
 - `czech.z3` — the Comprehensive Z-machine Emulation CHecker; runs with no
   input and must report `Passed: 349, Failed: 0`.
-- `minizork.z3` — a scripted play session exercising `sread`,
-  tokenisation, and the parser.
+- `minizork.z3` — a scripted play session, checked against a golden
+  transcript in `src/testdata/`, so a behavioural change shows up as a
+  readable diff rather than a pass count.
+
+czech is the broad check on the instruction set, but it reports only a
+total: a regression there says nothing about *which* opcode broke. So
+`src/test_machine.zig` provides a machine over a synthetic story and a
+small assembler, letting `opcodes.zig` and `machine.zig` test one
+instruction at a time — signedness, the indirect-stack rule, address
+wraparound, call frames and local defaults.
 
 A story file is untrusted input — it may be truncated, hand-edited, or
 hostile — and so are the state blobs the web frontends round-trip through
