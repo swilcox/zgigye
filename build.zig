@@ -90,14 +90,25 @@ pub fn build(b: *std.Build) void {
     // Stage the module, the play page, and a story together as static files,
     // so the browser demo needs no server of ours — any static file server
     // works:  zig build web && (cd zig-out/web && python3 -m http.server)
+    //
+    // The page is the same src/web/page.html the HTTP demo serves; the only
+    // difference between the two frontends is which transport is staged as
+    // transport.js. serve.zig embeds and routes the same set of files.
     const web_dir: std.Build.InstallDir = .{ .custom = "web" };
-    const stage_wasm = b.addInstallArtifact(wasm, .{ .dest_dir = .{ .override = web_dir } });
-    const stage_page = b.addInstallFileWithDir(b.path("src/web/wasm.html"), web_dir, "index.html");
-    const stage_story = b.addInstallFileWithDir(b.path("stories/minizork.z3"), web_dir, "minizork.z3");
     const web_step = b.step("web", "Stage the wasm browser demo under zig-out/web/");
-    web_step.dependOn(&stage_wasm.step);
-    web_step.dependOn(&stage_page.step);
-    web_step.dependOn(&stage_story.step);
+    web_step.dependOn(&b.addInstallArtifact(wasm, .{ .dest_dir = .{ .override = web_dir } }).step);
+
+    const staged = [_]struct { source: []const u8, dest: []const u8 }{
+        .{ .source = "src/web/page.html", .dest = "index.html" },
+        .{ .source = "src/web/transport_wasm.js", .dest = "transport.js" },
+        .{ .source = "stories/minizork.z3", .dest = "minizork.z3" },
+        .{ .source = "src/web/fonts/et-book-roman.woff", .dest = "fonts/et-book-roman.woff" },
+        .{ .source = "src/web/fonts/et-book-italic.woff", .dest = "fonts/et-book-italic.woff" },
+        .{ .source = "src/web/fonts/et-book-bold.woff", .dest = "fonts/et-book-bold.woff" },
+    };
+    for (staged) |file| {
+        web_step.dependOn(&b.addInstallFileWithDir(b.path(file.source), web_dir, file.dest).step);
+    }
 
     const mod_tests = b.addTest(.{ .root_module = mod });
     const run_mod_tests = b.addRunArtifact(mod_tests);

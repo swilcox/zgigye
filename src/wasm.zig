@@ -25,6 +25,7 @@
 const std = @import("std");
 const zgigye = @import("zgigye");
 const session = zgigye.session;
+const turn_json = zgigye.turn_json;
 
 // Freestanding wasm has no libc malloc; this is std's page-backed wasm heap.
 const gpa = std.heap.wasm_allocator;
@@ -37,18 +38,6 @@ var story: []u8 = &.{};
 // The JSON produced by the last turn. Kept alive after the call returns so
 // JS can read it, then replaced (and freed) on the next turn.
 var last_result: []u8 = &.{};
-
-/// Identical shape to serve.zig's TurnResponse, so the rendered JSON matches.
-const TurnResponse = struct {
-    output: []const zgigye.highlight.Span,
-    status: ?Status,
-    state: ?[]const u8,
-
-    const Status = struct {
-        location: []const u8,
-        progress: zgigye.StatusLine.Progress,
-    };
-};
 
 // --- Memory marshalling ---------------------------------------------------
 
@@ -113,43 +102,21 @@ fn runTurn(state_b64: ?[]const u8, input: ?[]const u8) ?[*]const u8 {
     const arena = arena_state.allocator();
 
     const turn = if (state_b64) |s| blk: {
-        const decoder = std.base64.standard.Decoder;
-        const len = decoder.calcSizeForSlice(s) catch return errorJson(error.InvalidState);
-        const state = arena.alloc(u8, len) catch return errorJson(error.OutOfMemory);
-        decoder.decode(state, s) catch return errorJson(error.InvalidState);
+        const state = turn_json.decodeState(arena, s) catch |err| return errorJson(err);
         break :blk session.advance(arena, story, state, input.?, max_steps_per_turn) catch |err|
             return errorJson(err);
     } else session.start(arena, story, max_steps_per_turn) catch |err|
         return errorJson(err);
     // `turn` is arena-allocated; arena.deinit cleans it up (no turn.deinit).
 
-    const json = buildJson(arena, turn) catch |err| return errorJson(err);
+    // Built on gpa, not the arena, so it outlives the turn; the same bytes
+    // serve.zig sends over HTTP (see turn_json.zig).
+    const json = turn_json.allocTurn(gpa, turn) catch |err| return errorJson(err);
     last_result = json;
     return json.ptr;
 }
 
-fn buildJson(arena: std.mem.Allocator, turn: session.Turn) ![]u8 {
-    const state_b64: ?[]const u8 = if (turn.state) |blob| blk: {
-        const encoder = std.base64.standard.Encoder;
-        const buf = try arena.alloc(u8, encoder.calcSize(blob.len));
-        break :blk encoder.encode(buf, blob);
-    } else null;
-
-    const payload: TurnResponse = .{
-        .output = turn.spans,
-        .status = if (turn.status) |s| .{ .location = s.location, .progress = s.progress } else null,
-        .state = state_b64,
-    };
-
-    // Built on gpa so it outlives the arena; json.fmt copies span texts in.
-    var json: std.Io.Writer.Allocating = .init(gpa);
-    errdefer json.deinit();
-    try json.writer.print("{f}", .{std.json.fmt(payload, .{})});
-    return json.toOwnedSlice();
-}
-
 fn errorJson(err: anyerror) ?[*]const u8 {
-    last_result = std.fmt.allocPrint(gpa, "{{\"error\":\"{s}\"}}", .{@errorName(err)}) catch
-        return null;
+    last_result = turn_json.allocError(gpa, err) catch return null;
     return last_result.ptr;
 }

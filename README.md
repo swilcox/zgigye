@@ -75,12 +75,14 @@ testable layers:
 | `src/debug.zig` | `$`-prefixed debugging commands that inspect machine state |
 | `src/state.zig` | Out-of-band machine-state snapshots (compact byte blobs) |
 | `src/session.zig` | Suspend-at-input/resume driver for non-blocking frontends |
+| `src/turn_json.zig` | The JSON wire format for a turn, shared by both web frontends |
 | `src/text_ui.zig` | Plain-text frontend over any `std.Io` reader/writer pair |
 | `src/tui_ui.zig` | Full-screen libvaxis frontend (exe only, not in the library) |
 | `src/theme.zig` | TUI colour themes: a `vaxis.Style` per styled element (exe only) |
 | `src/main.zig` | CLI entry point; picks the frontend and wires it up |
 | `src/serve.zig` | Demo HTTP frontend, one request per turn (exe only) |
 | `src/wasm.zig` | WebAssembly frontend, one exported call per turn (exe only) |
+| `src/web/page.html` | The play page, shared by both web frontends |
 
 ### Pluggable frontends
 
@@ -162,6 +164,14 @@ round-trips the blob through the browser as base64. `src/wasm.zig` drives
 the same `session` API from inside the browser instead: compiled to
 `wasm32-freestanding`, it exports one call per turn and hands the JSON
 straight to the page, so the round-trip never leaves the client.
+
+Beyond that transport, the two are the same program. `src/turn_json.zig`
+owns the JSON a turn is reported as, so both emit identical bytes by
+construction rather than by two definitions being kept in step. They serve
+one page, `src/web/page.html`; the only file that differs is the one
+served as `transport.js` — `transport_http.js` does a `fetch` per turn,
+`transport_wasm.js` calls into the module — and both define the same
+`Transport` of `init`, `start`, and `advance`.
 
 ### Testing
 

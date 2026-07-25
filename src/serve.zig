@@ -16,7 +16,13 @@ const Io = std.Io;
 const zgigye = @import("zgigye");
 const session = zgigye.session;
 
-const index_html = @embedFile("web/index.html");
+const turn_json = zgigye.turn_json;
+
+const index_html = @embedFile("web/page.html");
+const transport_js = @embedFile("web/transport_http.js");
+const font_regular = @embedFile("web/fonts/et-book-roman.woff");
+const font_italic = @embedFile("web/fonts/et-book-italic.woff");
+const font_bold = @embedFile("web/fonts/et-book-bold.woff");
 
 const max_steps_per_turn = 10_000_000;
 const max_body_len = 1024 * 1024;
@@ -26,17 +32,19 @@ const TurnRequest = struct {
     input: []const u8,
 };
 
-const TurnResponse = struct {
-    /// The turn's text as highlight spans: kind is "plain", "location",
-    /// or "keyword". Concatenating the texts reproduces the raw output.
-    output: []const zgigye.highlight.Span,
-    status: ?Status,
-    state: ?[]const u8,
+/// Static files the page pulls in. The wasm build stages the same set as
+/// real files (see build.zig); here they ride along in the binary.
+const Asset = struct {
+    path: []const u8,
+    content_type: []const u8,
+    bytes: []const u8,
+};
 
-    const Status = struct {
-        location: []const u8,
-        progress: zgigye.StatusLine.Progress,
-    };
+const assets = [_]Asset{
+    .{ .path = "/transport.js", .content_type = "text/javascript", .bytes = transport_js },
+    .{ .path = "/fonts/et-book-roman.woff", .content_type = "font/woff", .bytes = font_regular },
+    .{ .path = "/fonts/et-book-italic.woff", .content_type = "font/woff", .bytes = font_italic },
+    .{ .path = "/fonts/et-book-bold.woff", .content_type = "font/woff", .bytes = font_bold },
 };
 
 pub fn main(init: std.process.Init) !void {
@@ -122,6 +130,16 @@ fn handleRequest(
         });
     }
 
+    if (method == .GET) {
+        for (assets) |asset| {
+            if (std.mem.eql(u8, target, asset.path)) {
+                return request.respond(asset.bytes, .{
+                    .extra_headers = &.{.{ .name = "content-type", .value = asset.content_type }},
+                });
+            }
+        }
+    }
+
     if (method == .POST and std.mem.eql(u8, target, "/new")) {
         try drainBody(request);
         const turn = session.start(arena, story, max_steps_per_turn) catch
@@ -142,15 +160,8 @@ fn handleRequest(
         const parsed = std.json.parseFromSliceLeaky(TurnRequest, arena, body, .{}) catch
             return respondError(request, .bad_request, "expected JSON with \"state\" and \"input\"");
 
-        const decoder = std.base64.standard.Decoder;
-        const state = blk: {
-            const len = decoder.calcSizeForSlice(parsed.state) catch
-                return respondError(request, .bad_request, "state is not valid base64");
-            const state = try arena.alloc(u8, len);
-            decoder.decode(state, parsed.state) catch
-                return respondError(request, .bad_request, "state is not valid base64");
-            break :blk state;
-        };
+        const state = turn_json.decodeState(arena, parsed.state) catch
+            return respondError(request, .bad_request, "state is not valid base64");
 
         const turn = session.advance(arena, story, state, parsed.input, max_steps_per_turn) catch |err|
             switch (err) {
@@ -168,23 +179,9 @@ fn respondTurn(
     request: *std.http.Server.Request,
     turn: session.Turn,
 ) !void {
-    const state_b64: ?[]const u8 = if (turn.state) |blob| blk: {
-        const encoder = std.base64.standard.Encoder;
-        const buf = try arena.alloc(u8, encoder.calcSize(blob.len));
-        break :blk encoder.encode(buf, blob);
-    } else null;
-
-    // The object-name spans were recorded as the game printed; the client
-    // decides whether to show each kind.
-    const payload: TurnResponse = .{
-        .output = turn.spans,
-        .status = if (turn.status) |s| .{ .location = s.location, .progress = s.progress } else null,
-        .state = state_b64,
-    };
-
-    var json: std.Io.Writer.Allocating = .init(arena);
-    try json.writer.print("{f}", .{std.json.fmt(payload, .{})});
-    try request.respond(json.written(), .{
+    // Same bytes the wasm build hands the page directly; see turn_json.zig.
+    const json = try turn_json.allocTurn(arena, turn);
+    try request.respond(json, .{
         .extra_headers = &.{.{ .name = "content-type", .value = "application/json" }},
     });
 }

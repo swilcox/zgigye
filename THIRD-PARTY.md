@@ -25,10 +25,12 @@ The `tufte` theme in the web frontends uses the ET Book family, from
 [github.com/edwardtufte/et-book](https://github.com/edwardtufte/et-book) —
 MIT License, © 2015 Dmitry Krasny, Bonnie Scranton, Edward Tufte.
 
-Three weights are embedded as `data:` URIs in `src/web/index.html` and
-`src/web/wasm.html`, so each page stays a single self-contained file. Those
-files are therefore partly third-party content, and the MIT notice above
-travels with them.
+Three weights ship as files under `src/web/fonts/`, served by both web
+frontends (routes in `serve.zig`, staged files in `build.zig`). They were
+previously inlined as `data:` URIs in each page; as separate files the
+browser fetches them only when the `tufte` theme that uses them is
+actually selected. The MIT notice above travels with them, and is repeated
+in the `@font-face` block in `src/web/page.html`.
 
 ### Story files
 
