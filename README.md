@@ -1,4 +1,4 @@
-# z-gigye
+# Z기계 · z-gigye
 
 [![CI](https://github.com/swilcox/zgigye/actions/workflows/pages.yml/badge.svg)](https://github.com/swilcox/zgigye/actions/workflows/pages.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -13,9 +13,6 @@ client. Type `open mailbox` and go. Prefer the terminal? Read on.
 
 ---
 
-The name is *z-gigye* (the repo runs it together as `zgigye`): **기계** (*gigye*)
-is Korean for "machine", so it reads as "z-machine".
-
 ![The default theme playing Mini-Zork in the TUI](docs/assets/screenshot.png)
 
 The full-screen TUI playing Mini-Zork: the current location (*West of House*)
@@ -26,6 +23,14 @@ With `--theme c64` the same session takes on the classic Commodore 64 palette �
 light blue text on dark blue:
 
 ![The c64 theme playing Mini-Zork in the TUI](docs/assets/screenshot_c64.png)
+
+## The name
+
+**Z기계** — *z-gigye*, run together as `zgigye` wherever a name has to be one
+word. 기계 (*gigye*, roughly *kee-gyeh*) is Korean for "machine", from the
+hanja 機械: 機 a device or mechanism, 械 a tool. So the name is just
+"z-machine" with the second half in Hangul — which is apt for a program
+whose entire job is decoding one alphabet into another.
 
 ## Build and run
 
