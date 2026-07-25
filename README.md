@@ -228,6 +228,12 @@ interpreter never reaches the live demo.
 - Versions other than 3.
 - Sound, screen splitting, and output streams beyond the main window.
 
+## Releases
+
+Versions are tagged `vMAJOR.MINOR.PATCH`; see [CHANGELOG.md](CHANGELOG.md).
+While the major version is 0 the library API may change in any minor
+release.
+
 ## License
 
 zgigye is MIT-licensed; see [LICENSE](LICENSE).
