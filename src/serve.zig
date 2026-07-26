@@ -23,6 +23,9 @@ const transport_js = @embedFile("web/transport_http.js");
 const font_regular = @embedFile("web/fonts/et-book-roman.woff");
 const font_italic = @embedFile("web/fonts/et-book-italic.woff");
 const font_bold = @embedFile("web/fonts/et-book-bold.woff");
+// Outside the module (docs/assets/), so build.zig hands it over as a named
+// import. See the staged copy in the `web` step.
+const brandmark_svg = @embedFile("brandmark.svg");
 
 const max_steps_per_turn = 10_000_000;
 const max_body_len = 1024 * 1024;
@@ -45,6 +48,7 @@ const assets = [_]Asset{
     .{ .path = "/fonts/et-book-roman.woff", .content_type = "font/woff", .bytes = font_regular },
     .{ .path = "/fonts/et-book-italic.woff", .content_type = "font/woff", .bytes = font_italic },
     .{ .path = "/fonts/et-book-bold.woff", .content_type = "font/woff", .bytes = font_bold },
+    .{ .path = "/brandmark.svg", .content_type = "image/svg+xml", .bytes = brandmark_svg },
 };
 
 pub fn main(init: std.process.Init) !void {

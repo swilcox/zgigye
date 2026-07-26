@@ -86,6 +86,11 @@ everything except `tui_ui.zig`, `theme.zig`, `main.zig`, `serve.zig` and
   the JSON, so both emit identical bytes. `web/page.html` is the one page;
   the only file that differs is the one served as `transport.js`. Anything
   that would otherwise need changing in both belongs in the shared file.
+  A new static asset therefore lands in two places: the `assets` table in
+  `serve.zig` (embedded) and the `staged` table in `build.zig` (copied into
+  `zig-out/web/`). Assets outside the module — the favicon lives in
+  `docs/assets/brandmark.svg` — reach `@embedFile` through a named import
+  added in `build.zig`, since a relative path cannot escape the module.
 - `Machine.step` pre-advances the PC, so opcode handlers only touch it for
   control flow.
 - Debug commands: lines starting with `$` are intercepted in

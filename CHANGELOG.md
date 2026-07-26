@@ -7,6 +7,15 @@ Notable changes to zgigye. Format follows
 While the major version is 0, the library API may change in any minor
 release.
 
+## [Unreleased]
+
+### Added
+
+- Brand marks in `docs/assets/` — a brandmark, a mono variant, and a
+  wordmark, with a sheet describing the palette and which to use where.
+  The README leads with the brandmark, and both web frontends now serve it
+  as the page's favicon.
+
 ## [0.2.0] — 2026-07-25
 
 The interpreter itself is unchanged — no opcode, decoder, or state-format

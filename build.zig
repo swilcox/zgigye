@@ -47,6 +47,12 @@ pub fn build(b: *std.Build) void {
             },
         }),
     });
+    // The brandmark rides along as the page's favicon. It lives in docs/,
+    // outside the module, so @embedFile reaches it through a named import
+    // rather than a relative path; the wasm build stages the same file.
+    serve_exe.root_module.addAnonymousImport("brandmark.svg", .{
+        .root_source_file = b.path("docs/assets/brandmark.svg"),
+    });
     b.installArtifact(serve_exe);
 
     const serve_step = b.step("serve", "Run the demo web server (pass a story file after --)");
@@ -102,6 +108,7 @@ pub fn build(b: *std.Build) void {
         .{ .source = "src/web/page.html", .dest = "index.html" },
         .{ .source = "src/web/transport_wasm.js", .dest = "transport.js" },
         .{ .source = "stories/zork1.z3", .dest = "zork1.z3" },
+        .{ .source = "docs/assets/brandmark.svg", .dest = "brandmark.svg" },
         .{ .source = "src/web/fonts/et-book-roman.woff", .dest = "fonts/et-book-roman.woff" },
         .{ .source = "src/web/fonts/et-book-italic.woff", .dest = "fonts/et-book-italic.woff" },
         .{ .source = "src/web/fonts/et-book-bold.woff", .dest = "fonts/et-book-bold.woff" },

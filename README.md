@@ -1,3 +1,5 @@
+<img src="docs/assets/brandmark.svg" alt="" width="96" height="96">
+
 # Z기계 · z-gigye
 
 [![CI](https://github.com/swilcox/zgigye/actions/workflows/pages.yml/badge.svg)](https://github.com/swilcox/zgigye/actions/workflows/pages.yml)
@@ -33,6 +35,11 @@ word. 기계 (*gigye*, roughly *kee-gyeh*) is Korean for "machine", from the
 hanja 機械: 機 a device or mechanism, 械 a tool. So the name is just
 "z-machine" with the second half in Hangul — which is apt for a program
 whose entire job is decoding one alphabet into another.
+
+The brandmark above sets that literally: a geometric **Z** in red beside 기계
+in cream, over a rail of memory cells with a read head at each end. The mark
+files, the palette, and which one to use where are in
+[docs/assets](docs/assets/).
 
 ## Build and run
 
