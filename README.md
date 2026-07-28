@@ -36,10 +36,11 @@ hanja 機械: 機 a device or mechanism, 械 a tool. So the name is just
 "z-machine" with the second half in Hangul — which is apt for a program
 whose entire job is decoding one alphabet into another.
 
-The brandmark above sets that literally: a geometric **Z** in red beside 기계
-in cream, over a rail of memory cells with a read head at each end. The mark
-files, the palette, and which one to use where are in
-[docs/assets](docs/assets/).
+The brandmark above takes the other half of the name: a **Z** built out of the
+transcript it is reading — two cream lines of prose with a red stair descending
+between them, which is what an interpreter walking a story file amounts to. 기계
+itself sits in the wordmark, where there is room to read it. The mark files, the
+palette, and which one to use where are in [docs/assets](docs/assets/).
 
 ## Build and run
 
