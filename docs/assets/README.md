@@ -8,34 +8,61 @@ so MIT like the rest of it.
 
 | File | Size | Use it for |
 | ---- | ---- | ---------- |
-| `brandmark.svg` | 1024×1024 | The default. A self-contained tile — it carries its own dark background, so it reads on any page in either colour scheme. README header, favicon, avatars, social preview. |
-| `brandmark-mono.svg` | 1024×1024 | Single-colour contexts and small sizes: black tile, white glyphs, no corner brackets or memory cells to muddy at 16px. |
-| `wordmark.svg` | 1500×500 | The horizontal lockup — icon tile, 기계, and ZGIGYE under a red rule. For a banner or a slide where the full name has to be legible at a glance. **Assumes a light background** (see below). |
+| `brandmark.svg` | 1024×1024 | The default. A self-contained tile — it carries its own dark ground, so it reads on any page in either colour scheme. README header, favicon, avatars, social preview. |
+| `brandmark-mono.svg` | 1024×1024 | Single-colour contexts and anything below about 32px: black tile, white Z, no steps to muddy at 16px. |
+| `wordmark.svg` | 973×480 | The horizontal lockup — the mark, 기계, and ZGIGYE under a red rule. For a banner or a slide where the full name has to be legible at a glance. Carries its own ground too, so it goes anywhere the brandmark goes. |
 
-The marks say the same thing the name does: a geometric **Z** beside 기계,
-over a rail of memory cells with a read head at each end — an interpreter
-walking a story file.
+The mark is a **Z built out of the transcript it is reading**: two full lines
+of prose in cream, top and bottom, with a red stair of six steps descending
+between them. Read it at a glance and it is the letter Z; read it slowly and
+it is an interpreter walking a story file one line at a time. The steps
+overlap by two thirds of their width, which is what welds the staircase into
+a single diagonal instead of leaving it a column of dashes.
+
+The name's other half is not in the brandmark on purpose. Carrying **Z** and
+기계 and a memory rail at once left nothing legible below 32px, so the icon
+keeps the Z and the wordmark carries 기계.
 
 ## Palette
 
 | Swatch | Hex | Role |
 | ------ | --- | ---- |
-| Ink | `#111820` | Tile background, wordmark glyphs |
-| Red | `#C95248` | The Z, the read heads, the wordmark's rule |
-| Cream | `#F2E9D8` | 기계, the memory cells |
-| Slate | `#33424D` | Corner brackets, the rail, ZGIGYE |
+| Ink | `#111820` | Tile and panel ground |
+| Red | `#C95248` | The descending stair, the wordmark's rule |
+| Cream | `#F2E9D8` | The two transcript lines, 기계, ZGIGYE |
+| Slate | `#33424D` | The silhouette ring |
 
 The red and cream are the same pair the web frontend's `tufte` theme uses
 for object names and page, which is why the mark and the demo look related.
 
-## The wordmark needs a light background
+## The ring is load-bearing
 
-`wordmark.svg` draws 기계 in ink (`#111820`) on transparency, so it
-disappears against a dark page — including GitHub in dark mode, which is why
-the README header uses the brandmark instead. Two ways out if the wordmark
-is wanted there: add a light-on-dark variant and pair them with
-`<picture media="(prefers-color-scheme: dark)">`, or give the file an opaque
-cream background of its own. Neither exists yet.
+Both the brandmark and the wordmark draw a slate ring just inside their
+edge. It is not a border for its own sake: the ground is `#111820` and
+GitHub's dark mode is `#0d1117`, close enough that without the ring the
+silhouette dissolves into the page. On light grounds it is nearly invisible,
+which is the point — it only shows up where it is needed.
+
+This is also what retired the old caveat that the wordmark could not be used
+on a dark page. It now carries an opaque ground of its own, so no
+light-on-dark variant or `<picture>` pairing is required.
+
+## Why the mono variant is a different Z
+
+`brandmark-mono.svg` is not the brandmark recoloured — it closes the stair
+up into one solid stroke. Rendered side by side at 16px the stepped Z is
+legible but soft while the solid one stays crisp, and that difference is the
+whole reason the file exists. It occupies the identical bounding box,
+`(130,128)`–`(382,384)` in the 512 viewBox, so the two sit at matching
+optical size when they appear near each other.
+
+## Regenerating the wordmark
+
+The wordmark's 기계 and ZGIGYE are font outlines, too long to edit by hand.
+`docs/assets/build_wordmark.py` composes the file from those outlines plus
+the mark, placing every element from its measured bounding box — change the
+sizes and margins at the top of the script and re-run it rather than editing
+the SVG.
 
 ## Where they are used
 

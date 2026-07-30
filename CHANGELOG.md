@@ -13,8 +13,14 @@ release.
 
 - Brand marks in `docs/assets/` — a brandmark, a mono variant, and a
   wordmark, with a sheet describing the palette and which to use where.
+  The mark is a Z built out of the transcript it is reading: two lines of
+  prose with a stair descending between them. The mono variant closes that
+  stair into one solid stroke, which is what survives at 16px. Both the
+  brandmark and the wordmark carry their own ground and a ring that keeps
+  the silhouette on pages as dark as they are, so either can go anywhere.
   The README leads with the brandmark, and both web frontends now serve it
-  as the page's favicon.
+  as the page's favicon. `docs/assets/build_wordmark.py` regenerates the
+  wordmark from its font outlines.
 
 ## [0.2.0] — 2026-07-25
 
